@@ -5,6 +5,7 @@ INSTALL_DIR="$HOME/.local"
 BIN_DIR="$INSTALL_DIR/bin"
 ICON_DIR="$INSTALL_DIR/share/icons/hicolor/scalable/apps"
 DESKTOP_DIR="$INSTALL_DIR/share/applications"
+MIME_DIR="$INSTALL_DIR/share/mime"
 APP_NAME="numnum"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -60,13 +61,14 @@ cat > "$DESKTOP_DIR/numnum.desktop" << EOF
 [Desktop Entry]
 Name=NumNum
 Comment=A text editor that does math
-Exec=$BIN_DIR/numnum
+Exec=$BIN_DIR/numnum %f
 Icon=numnum
 Terminal=false
 Type=Application
 Categories=Utility;Calculator;
 Keywords=calculator;math;units;currency;conversion;
 StartupWMClass=numnum
+MimeType=application/x-numnum;
 EOF
 ok "Desktop entry created"
 
@@ -74,6 +76,27 @@ ok "Desktop entry created"
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
 fi
+
+# ── File type (.numnum) ─────────────────────────────────────────────────
+
+mkdir -p "$MIME_DIR/packages"
+cat > "$MIME_DIR/packages/numnum.xml" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-numnum">
+    <comment>NumNum document</comment>
+    <sub-class-of type="text/plain"/>
+    <glob pattern="*.numnum"/>
+  </mime-type>
+</mime-info>
+EOF
+if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database "$MIME_DIR" 2>/dev/null || true
+fi
+if command -v xdg-mime >/dev/null 2>&1; then
+    xdg-mime default numnum.desktop application/x-numnum 2>/dev/null || true
+fi
+ok ".numnum files open with NumNum"
 
 # ── Window manager rules ────────────────────────────────────────────────
 
