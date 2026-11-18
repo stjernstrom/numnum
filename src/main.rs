@@ -97,6 +97,8 @@ fn main() {
             KeyBinding::new("ctrl-a", SelectAll, Some("Editor")),
             KeyBinding::new("home", Home, Some("Editor")),
             KeyBinding::new("end", End, Some("Editor")),
+            KeyBinding::new("ctrl-left", Home, Some("Editor")),
+            KeyBinding::new("ctrl-right", End, Some("Editor")),
             KeyBinding::new("cmd-c", Copy, Some("Editor")),
             KeyBinding::new("ctrl-c", Copy, Some("Editor")),
             KeyBinding::new("ctrl-shift-c", Copy, Some("Editor")),
