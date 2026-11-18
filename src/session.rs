@@ -74,33 +74,73 @@ pub fn new_session_path() -> PathBuf {
 }
 
 pub fn list_sessions() -> Vec<(PathBuf, Session)> {
-    let dir = sessions_dir();
-    let mut sessions = Vec::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().map(|e| e == "json").unwrap_or(false) {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(session) = serde_json::from_str::<Session>(&content) {
-                        if !session.content.trim().is_empty() {
-                            sessions.push((path, session));
-                        }
-                    }
-                }
-            }
+    let mut sessions = list_sessions_in_dir(&sessions_dir());
+    for path in recent_files() {
+        if let Some(session) = load_session(&path) {
+            sessions.push((path, session));
         }
     }
     sessions.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
     sessions
 }
 
+/// A document saved by the user as plain text (anything but a `.json` session).
+pub fn is_document_file(path: &Path) -> bool {
+    path.extension().map(|e| e != "json").unwrap_or(true)
+}
+
+fn recent_files_path() -> PathBuf {
+    data_dir().join("recent_files")
+}
+
+/// Files the user has opened or saved, most recent last. Missing files are skipped.
+pub fn recent_files() -> Vec<PathBuf> {
+    fs::read_to_string(recent_files_path())
+        .unwrap_or_default()
+        .lines()
+        .map(PathBuf::from)
+        .filter(|p| p.exists())
+        .collect()
+}
+
+pub fn add_recent_file(path: &Path) {
+    let mut files = recent_files();
+    files.retain(|p| p != path);
+    files.push(path.to_path_buf());
+    write_recent_files(&files);
+}
+
+pub fn remove_recent_file(path: &Path) {
+    let mut files = recent_files();
+    files.retain(|p| p != path);
+    write_recent_files(&files);
+}
+
+fn write_recent_files(files: &[PathBuf]) {
+    let _ = fs::create_dir_all(data_dir());
+    let text: Vec<String> = files.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    let _ = fs::write(recent_files_path(), text.join("\n"));
+}
+
 pub fn save_session(path: &Path, session: &Session) {
+    if is_document_file(path) {
+        let _ = fs::write(path, &session.content);
+        return;
+    }
     if let Ok(json) = serde_json::to_string_pretty(session) {
         let _ = fs::write(path, json);
     }
 }
 
 pub fn load_session(path: &Path) -> Option<Session> {
+    if is_document_file(path) {
+        let content = fs::read_to_string(path).ok()?;
+        let modified = fs::metadata(path).and_then(|m| m.modified()).ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or_default();
+        return Some(Session { content, created_at: modified, updated_at: modified });
+    }
     fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok())
 }
 
@@ -720,6 +760,19 @@ mod tests {
         assert!(try_lock_in_dir(&dir.join("other.json"), &dir).is_some(), "other docs are free");
         drop(first);
         assert!(try_lock_in_dir(&doc, &dir).is_some(), "lock is released on drop");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn test_document_file_is_plain_text() {
+        let dir = test_dir();
+        let path = dir.join("summary.numnum");
+        save_session(&path, &Session::new("10\n20\nsum".to_string()));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "10\n20\nsum");
+        assert_eq!(load_session(&path).unwrap().content, "10\n20\nsum");
+        assert!(is_document_file(&path));
+        assert!(is_document_file(&dir.join("noext")));
+        assert!(!is_document_file(&dir.join("numnum_session_1.json")));
         cleanup(&dir);
     }
 }

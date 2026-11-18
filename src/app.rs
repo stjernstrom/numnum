@@ -20,7 +20,7 @@ use crate::settings_pane::SettingsPane;
 use crate::status_bar::StatusBar;
 use crate::theme::Theme;
 
-actions!(numnum, [CloseWindow]);
+actions!(numnum, [CloseWindow, NewSession, OpenFile, SaveFile, SaveFileAs]);
 
 pub struct NumNumApp {
     pub editor: Entity<Editor>,
@@ -74,6 +74,7 @@ impl NumNumApp {
         // Create status bar with settings callback
         let settings_pane_for_bar = settings_pane.clone();
         let app_for_copy = cx.entity().downgrade();
+        let app_for_menu = cx.entity().downgrade();
         let status_bar = cx.new(|_| StatusBar::new(
             theme.clone(),
             Some(Arc::new(move |_window: &mut Window, cx: &mut App| {
@@ -83,6 +84,9 @@ impl NumNumApp {
             })),
             Some(Arc::new(move |_window: &mut Window, cx: &mut App| {
                 let _ = app_for_copy.update(cx, |this, cx| this.copy_with_results(cx));
+            })),
+            Some(Arc::new(move |_window: &mut Window, cx: &mut App| {
+                let _ = app_for_menu.update(cx, |this, cx| this.toggle_burger_menu(cx));
             })),
         ));
 
@@ -427,6 +431,95 @@ impl NumNumApp {
         cx.notify();
     }
 
+    pub fn flash(&mut self, message: &str, cx: &mut Context<Self>) {
+        self.status_bar.update(cx, |bar, cx| bar.flash(message, cx));
+    }
+
+    fn open_file_dialog(&mut self, cx: &mut Context<Self>) {
+        self.burger_menu_open = false;
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await {
+                if let Some(path) = paths.into_iter().next() {
+                    let _ = this.update(cx, |this, cx| {
+                        crate::session::add_recent_file(&path);
+                        if this.session_path.as_ref() != Some(&path) {
+                            this.switch_session(path, cx);
+                        }
+                    });
+                }
+            }
+        }).detach();
+        cx.notify();
+    }
+
+    /// Ctrl+S: files are autosaved, so this only confirms. A scratchpad asks for a name.
+    fn save_file(&mut self, cx: &mut Context<Self>) {
+        match &self.session_path {
+            Some(path) if crate::session::is_document_file(path) => {
+                self.save_current_session(cx);
+                self.flash("Saved", cx);
+            }
+            _ => self.save_file_as_dialog(cx),
+        }
+    }
+
+    fn save_file_as_dialog(&mut self, cx: &mut Context<Self>) {
+        self.burger_menu_open = false;
+        let current_file = self.session_path.clone().filter(|p| crate::session::is_document_file(p));
+        let dir = current_file.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from("."));
+        let name = current_file.as_ref().and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "untitled.numnum".to_string());
+        let rx = cx.prompt_for_new_path(&dir, Some(&name));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(mut path))) = rx.await {
+                if path.extension().is_none() {
+                    path.set_extension("numnum");
+                }
+                let _ = this.update(cx, |this, cx| this.save_as(path, cx));
+            }
+        }).detach();
+        cx.notify();
+    }
+
+    /// Write the document to `path` and continue editing it there. A scratchpad
+    /// session moves into the file, so it is not listed twice.
+    fn save_as(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.session_path.as_ref() == Some(&path) {
+            self.save_current_session(cx);
+            self.flash("Saved", cx);
+            return;
+        }
+        let Some(lock) = crate::session::try_lock(&path) else {
+            self.flash("Open in another window", cx);
+            return;
+        };
+        let content = self.editor.read(cx).content().to_string();
+        crate::session::save_session(&path, &crate::session::Session::new(content));
+        if !path.exists() {
+            self.flash("Could not save", cx);
+            return;
+        }
+        if let Some(old) = self.session_path.take() {
+            if !crate::session::is_document_file(&old) {
+                let _ = std::fs::remove_file(&old);
+            }
+        }
+        self.session_path = Some(path.clone());
+        self.doc_lock = Some(lock);
+        crate::session::add_recent_file(&path);
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        self.flash(&format!("Saved {name}"), cx);
+    }
+
     /// Copy the document (or the selected lines) with results as aligned plain text.
     fn copy_with_results(&mut self, cx: &mut Context<Self>) {
         let editor = self.editor.read(cx);
@@ -445,11 +538,15 @@ impl NumNumApp {
         if self.session_path.as_ref() == Some(&path) {
             return;
         }
-        if crate::session::try_lock(&path).is_none() {
+        if crate::session::is_document_file(&path) {
+            // Never delete a user's file, only forget it.
+            crate::session::remove_recent_file(&path);
+        } else if crate::session::try_lock(&path).is_none() {
             self.status_bar.update(cx, |bar, cx| bar.flash("Open in another window", cx));
             return;
+        } else {
+            let _ = std::fs::remove_file(&path);
         }
-        let _ = std::fs::remove_file(&path);
         self.session_list.retain(|(p, _)| p != &path);
         cx.notify();
     }
@@ -458,6 +555,13 @@ impl NumNumApp {
         let content = self.editor.read(cx).content().to_string();
 
         if content.trim().is_empty() {
+            // A file the user saved stays on disk, just emptied.
+            if let Some(path) = self.session_path.as_ref().filter(|p| crate::session::is_document_file(p)) {
+                if std::fs::read_to_string(path).ok().as_deref() != Some(content.as_str()) {
+                    let _ = std::fs::write(path, &content);
+                }
+                return;
+            }
             // Empty content: delete the session file if it exists and clear the path.
             // This prevents accumulating empty sessions on disk.
             if let Some(path) = self.session_path.take() {
@@ -565,6 +669,10 @@ impl Render for NumNumApp {
 
         div()
             .on_action(|_: &CloseWindow, window, _cx| window.remove_window())
+            .on_action(cx.listener(|this, _: &NewSession, _, cx| this.new_session(cx)))
+            .on_action(cx.listener(|this, _: &OpenFile, _, cx| this.open_file_dialog(cx)))
+            .on_action(cx.listener(|this, _: &SaveFile, _, cx| this.save_file(cx)))
+            .on_action(cx.listener(|this, _: &SaveFileAs, _, cx| this.save_file_as_dialog(cx)))
             .flex()
             .flex_col()
             .size_full()
@@ -796,8 +904,9 @@ impl Render for NumNumApp {
                     div()
                         .id("burger-menu")
                         .absolute()
-                        .top(titlebar_height)
-                        .right(px(8.))
+                        // Under the title bar burger, or above the status bar button without it
+                        .when(titlebar_height > px(0.), |el| el.top(titlebar_height).right(px(8.)))
+                        .when(titlebar_height == px(0.), |el| el.bottom(px(28.)).left(px(8.)))
                         .w(px(240.))
                         .max_h(px(320.))
                         .overflow_y_scroll()
@@ -812,7 +921,11 @@ impl Render for NumNumApp {
                                 .p(px(4.))
                                 .children(sessions.iter().map(|(path, session)| {
                                     let is_current = current_path.as_ref() == Some(path);
-                                    let display_name = crate::session::format_display_name(&session.content);
+                                    let display_name = if crate::session::is_document_file(path) {
+                                        path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                                    } else {
+                                        crate::session::format_display_name(&session.content)
+                                    };
                                     let timestamp = crate::session::format_timestamp(session.updated_at);
                                     let path_switch = path.clone();
                                     let path_delete = path.clone();
@@ -901,6 +1014,38 @@ impl Render for NumNumApp {
                                         .child("New Session")
                                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                             this.new_session(cx);
+                                        }))
+                                )
+                                .child(
+                                    div()
+                                        .id("open-file-btn")
+                                        .px(px(8.))
+                                        .py(px(6.))
+                                        .rounded_sm()
+                                        .text_size(px(12.))
+                                        .text_color(theme.text)
+                                        .cursor(CursorStyle::PointingHand)
+                                        .hover(|s| s.bg(theme.divider))
+                                        .active(|s| s.bg(theme.divider))
+                                        .child("Open File…")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            this.open_file_dialog(cx);
+                                        }))
+                                )
+                                .child(
+                                    div()
+                                        .id("save-as-btn")
+                                        .px(px(8.))
+                                        .py(px(6.))
+                                        .rounded_sm()
+                                        .text_size(px(12.))
+                                        .text_color(theme.text)
+                                        .cursor(CursorStyle::PointingHand)
+                                        .hover(|s| s.bg(theme.divider))
+                                        .active(|s| s.bg(theme.divider))
+                                        .child("Save As…")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            this.save_file_as_dialog(cx);
                                         }))
                                 )
                         )

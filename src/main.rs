@@ -12,7 +12,7 @@ use gpui::{App, Bounds, Focusable, KeyBinding, Point, SharedString, TitlebarOpti
 use gpui_platform::application;
 use numnum_core::{Settings, ThemeFile};
 
-use crate::app::{CloseWindow, NumNumApp};
+use crate::app::{CloseWindow, NewSession, NumNumApp, OpenFile, SaveFile, SaveFileAs};
 use crate::editor::*;
 use crate::settings_pane::EscapeSettings;
 use crate::theme::Theme;
@@ -113,6 +113,14 @@ fn main() {
             KeyBinding::new("escape", Escape, Some("Editor")),
             KeyBinding::new("escape", EscapeSettings, Some("SettingsPane")),
             KeyBinding::new("super-w", CloseWindow, None),
+            KeyBinding::new("ctrl-n", NewSession, None),
+            KeyBinding::new("cmd-n", NewSession, None),
+            KeyBinding::new("ctrl-o", OpenFile, None),
+            KeyBinding::new("cmd-o", OpenFile, None),
+            KeyBinding::new("ctrl-s", SaveFile, None),
+            KeyBinding::new("cmd-s", SaveFile, None),
+            KeyBinding::new("ctrl-shift-s", SaveFileAs, None),
+            KeyBinding::new("cmd-shift-s", SaveFileAs, None),
         ]);
 
         let font_size = settings.editor.font_size;
@@ -123,11 +131,32 @@ fn main() {
         // so if none exist we start with no session file and create one lazily
         // on first non-empty content change. If another instance has it open,
         // start with an empty scratchpad instead.
-        let sessions = session::list_sessions();
-        let initial_session = sessions.into_iter().next()
-            .and_then(|(path, session)| {
-                session::try_lock(&path).map(|lock| (path, session.content, lock))
-            });
+        // A file given on the command line (`numnum summary.numnum`) wins.
+        let mut startup_notice = None;
+        let initial_session = if let Some(arg) = std::env::args_os().nth(1) {
+            let path = std::path::PathBuf::from(arg);
+            let path = path.canonicalize().or_else(|_| std::path::absolute(&path)).unwrap_or(path);
+            match session::try_lock(&path) {
+                Some(lock) => {
+                    let content = std::fs::read_to_string(&path).unwrap_or_default();
+                    if !path.exists() {
+                        let _ = std::fs::write(&path, "");
+                    }
+                    session::add_recent_file(&path);
+                    Some((path, content, lock))
+                }
+                None => {
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    startup_notice = Some(format!("{name} is open in another window"));
+                    None
+                }
+            }
+        } else {
+            session::list_sessions().into_iter().next()
+                .and_then(|(path, session)| {
+                    session::try_lock(&path).map(|lock| (path, session.content, lock))
+                })
+        };
 
         // Resolve auto mode inside the window callback where we have access to window appearance
         let appearance_mode = settings.appearance.mode.clone();
@@ -192,6 +221,9 @@ fn main() {
         _window_handle
             .update(cx, |app, window, cx| {
                 window.focus(&app.editor.focus_handle(cx), cx);
+                if let Some(notice) = &startup_notice {
+                    app.flash(notice, cx);
+                }
 
                 if auto_mode {
                     cx.observe_window_appearance(window, move |this: &mut NumNumApp, window, cx| {
