@@ -2211,6 +2211,31 @@ mod unicode_tests {
         assert_eq!(ctx.eval_line("10 - 4").unwrap(), Value::Number(6.0));
     }
 
+    fn eval_swedish(input: &str) -> Result<Value, super::EvalError> {
+        let mut ctx = EvalContext::new();
+        ctx.set_number_format(crate::types::NumberFormat::Swedish);
+        ctx.eval_line(input)
+    }
+
+    #[test]
+    fn test_swedish_space_grouped_input() {
+        assert_eq!(eval_swedish("3 594 272").unwrap(), Value::Number(3594272.0));
+        assert_eq!(eval_swedish("3\u{00A0}594\u{202F}272").unwrap(), Value::Number(3594272.0));
+        assert_eq!(eval_swedish("3 594 272,5").unwrap(), Value::Number(3594272.5));
+        assert_eq!(eval_swedish("1 234 + 1").unwrap(), Value::Number(1235.0));
+        assert_eq!(eval_swedish("3.594.272").unwrap(), Value::Number(3594272.0));
+        assert!(matches!(eval_swedish("10 000 SEK").unwrap(), Value::WithCurrency(n, _) if n == 10000.0));
+        assert!(eval_swedish("5 10").is_err());
+    }
+
+    #[test]
+    fn test_malformed_number_is_error_not_zero() {
+        assert!(eval_swedish("3,594,272").is_err());
+        let mut ctx = EvalContext::new();
+        assert!(ctx.eval_line("3.594.272").is_err());
+        assert!(ctx.eval_line("3 594 272").is_err());
+    }
+
     #[test]
     fn test_swedish_number_input() {
         let mut ctx = EvalContext::new();

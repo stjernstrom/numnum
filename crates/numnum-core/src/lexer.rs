@@ -276,6 +276,32 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
+        // Swedish: space-grouped thousands ("3 594 272", also no-break spaces), only when
+        // the number so far is 1-3 plain digits and each group is exactly 3 digits
+        if self.number_format == NumberFormat::Swedish
+            && self.pos - start <= 3
+            && self.processed_input[start..self.pos].bytes().all(|b| b.is_ascii_digit())
+        {
+            loop {
+                let rest = &self.processed_input[self.pos..];
+                let Some(sep) = [' ', '\u{00A0}', '\u{202F}'].into_iter().find(|c| rest.starts_with(*c)) else { break };
+                let after = &rest.as_bytes()[sep.len_utf8()..];
+                let is_group = after.len() >= 3
+                    && after[..3].iter().all(|b| b.is_ascii_digit())
+                    && !after.get(3).is_some_and(|b| b.is_ascii_digit() || *b == b'.');
+                if !is_group {
+                    break;
+                }
+                self.pos += sep.len_utf8() + 3;
+            }
+            // Decimal part after the last group: ",5"
+            if self.processed_input[self.pos..].starts_with(',') {
+                self.pos += 1;
+                while self.pos < input_len && self.input().as_bytes()[self.pos].is_ascii_digit() {
+                    self.pos += 1;
+                }
+            }
+        }
         // Scientific notation
         if self.pos < input_len && (self.input().as_bytes()[self.pos] == b'e' || self.input().as_bytes()[self.pos] == b'E') {
             self.pos += 1;
@@ -290,14 +316,20 @@ impl<'a> Lexer<'a> {
         let num_str: String = match self.number_format {
             NumberFormat::European | NumberFormat::Swedish => {
                 // European/Swedish: dots are thousands separators, comma is decimal
-                raw.chars().filter(|c| *c != '.').map(|c| if c == ',' { '.' } else { c }).collect()
+                raw.chars()
+                    .filter(|c| !matches!(c, '.' | ' ' | '\u{00A0}' | '\u{202F}'))
+                    .map(|c| if c == ',' { '.' } else { c })
+                    .collect()
             }
             _ => {
                 // US/Indian: commas are thousands separators, dot is decimal
                 raw.chars().filter(|c| *c != ',').collect()
             }
         };
-        let val = num_str.parse::<f64>().unwrap_or(0.0);
+        let Ok(val) = num_str.parse::<f64>() else {
+            // Malformed number (e.g. "3,594,272" with comma decimals): report it, don't turn it into 0
+            return Token { kind: TokenKind::Ident(raw.to_string()), span: start..self.pos };
+        };
 
         // Check for immediate scale suffix (no space): 2k, 3M
         if self.pos < input_len {
