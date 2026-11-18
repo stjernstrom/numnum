@@ -70,13 +70,6 @@ actions!(
     ]
 );
 
-/// Text shown on its own row below a line: an error, or a "---" subtotal.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Inlay {
-    pub text: String,
-    pub is_error: bool,
-}
-
 // ── Autocomplete ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -156,8 +149,8 @@ pub struct Editor {
     pub font_size: Pixels,
     unit_table: UnitTable,
     currency_table: CurrencyTable,
-    // Per-line inlays below the line (error messages and "---" subtotals)
-    pub diagnostics: Vec<Option<Inlay>>,
+    // Per-line diagnostics (error messages shown as inlay below the line)
+    pub diagnostics: Vec<Option<String>>,
     pub show_diagnostics: bool,
     // Per-line layout cache (rebuilt each frame)
     line_layouts: Vec<Option<WrappedLine>>,
@@ -1848,9 +1841,9 @@ impl Render for Editor {
                             )
                             .into_any_element(),
                     );
-                    // Inlay below the line: error diagnostic or "---" subtotal
-                    if let Some(Some(inlay)) = self.diagnostics.get(i) {
-                        if !inlay.is_error || self.show_diagnostics {
+                    // Inlay diagnostic below error lines
+                    if self.show_diagnostics {
+                        if let Some(Some(diag)) = self.diagnostics.get(i) {
                             children.push(
                                 div()
                                     .w_full()
@@ -1858,8 +1851,7 @@ impl Render for Editor {
                                     .py(px(2.))
                                     .text_size(self.font_size * 0.75)
                                     .text_color(error_color)
-                                    // Subtotals are drawn in the results pane; keep the row height here
-                                    .child(if inlay.is_error { inlay.text.clone() } else { "\u{00A0}".to_string() })
+                                    .child(diag.clone())
                                     .into_any_element(),
                             );
                         }

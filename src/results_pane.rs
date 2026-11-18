@@ -2,7 +2,6 @@ use gpui::{
     App, ClipboardItem, Context, MouseButton, MouseUpEvent, Render, Window, div, prelude::*, px,
 };
 
-use crate::editor::Inlay;
 use crate::theme::Theme;
 
 #[derive(Clone, Debug)]
@@ -10,11 +9,13 @@ pub enum LineResult {
     None,
     /// display_text, full_precision_copy_text
     Value(String, String),
+    /// "---" subtotal: shown with a rule above, not clickable
+    Subtotal(String),
 }
 
 pub struct ResultsPane {
     results: Vec<LineResult>,
-    inlays: Vec<Option<Inlay>>,
+    has_diagnostic: Vec<bool>,
     pub copy_full_precision: bool,
     pub line_visual_counts: Vec<usize>,
     pub theme: Theme,
@@ -24,7 +25,7 @@ impl ResultsPane {
     pub fn new(theme: Theme, copy_full_precision: bool) -> Self {
         ResultsPane {
             results: Vec::new(),
-            inlays: Vec::new(),
+            has_diagnostic: Vec::new(),
             copy_full_precision,
             line_visual_counts: Vec::new(),
             theme,
@@ -34,10 +35,10 @@ impl ResultsPane {
     pub fn set_results_with_diagnostics(
         &mut self,
         results: Vec<LineResult>,
-        diagnostics: &[Option<Inlay>],
+        diagnostics: &[Option<String>],
         cx: &mut Context<Self>,
     ) {
-        self.inlays = diagnostics.to_vec();
+        self.has_diagnostic = diagnostics.iter().map(|d| d.is_some()).collect();
         self.results = results;
         cx.notify();
     }
@@ -49,7 +50,7 @@ impl Render for ResultsPane {
         let theme = self.theme.clone();
         let results = self.results.clone();
 
-        let inlays = self.inlays.clone();
+        let has_diag = self.has_diagnostic.clone();
 
         div()
             .flex()
@@ -63,7 +64,9 @@ impl Render for ResultsPane {
                     let (text, color) = match &result {
                         LineResult::None => (String::new(), theme.text_dimmed),
                         LineResult::Value(display, _) => (display.clone(), theme.result),
+                        LineResult::Subtotal(display) => (display.clone(), theme.result),
                     };
+                    let is_subtotal = matches!(result, LineResult::Subtotal(_));
 
                     let text_for_copy = if self.copy_full_precision {
                         match &result {
@@ -73,6 +76,7 @@ impl Render for ResultsPane {
                     } else {
                         text.clone()
                     };
+                    let text_for_copy = if is_subtotal { String::new() } else { text_for_copy };
                     let visual_count = self.line_visual_counts.get(i).copied().unwrap_or(1);
                     let row_height = line_height * visual_count as f32;
                     children.push(
@@ -97,30 +101,26 @@ impl Render for ResultsPane {
                                         },
                                     )
                             })
-                            .child(text)
+                            .when(!is_subtotal, |el| el.child(text.clone()))
+                            .when(is_subtotal, |el| {
+                                el.child(
+                                    div()
+                                        .border_t_1()
+                                        .border_color(theme.text_dimmed)
+                                        .child(text.clone()),
+                                )
+                            })
                             .into_any_element(),
                     );
 
-                    // Spacer matching the editor's inlay row. A "---" subtotal is shown
-                    // here, right-aligned with a rule above it.
-                    if let Some(Some(inlay)) = inlays.get(i) {
-                        let mut spacer = div()
-                            .w_full()
-                            .h(line_height * 0.8) // proportional diagnostic spacer
-                            .flex()
-                            .justify_end()
-                            .px(px(8.));
-                        if !inlay.is_error {
-                            spacer = spacer.child(
-                                div()
-                                    .border_t_1()
-                                    .border_color(theme.text_dimmed)
-                                    .text_size(window.rem_size() * 0.75)
-                                    .text_color(theme.result)
-                                    .child(inlay.text.clone()),
-                            );
-                        }
-                        children.push(spacer.into_any_element());
+                    // Insert empty spacer if this line has a diagnostic inlay
+                    if has_diag.get(i).copied().unwrap_or(false) {
+                        children.push(
+                            div()
+                                .w_full()
+                                .h(line_height * 0.8) // proportional diagnostic spacer
+                                .into_any_element(),
+                        );
                     }
                 }
                 children
