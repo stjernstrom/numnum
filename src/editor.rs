@@ -1828,7 +1828,11 @@ impl Render for Editor {
                         let line_end = line_start + lines.get(i).map(|l| l.len()).unwrap_or(0);
                         offset >= line_start && offset <= line_end
                     };
-                    let row_bg = if is_cursor_line && self.focus_handle.is_focused(window) {
+                    // No current-line highlight while text is selected: it looked like part of the selection
+                    let row_bg = if is_cursor_line
+                        && self.selected_range.is_empty()
+                        && self.focus_handle.is_focused(window)
+                    {
                         Some(gpui::hsla(0.0, 0.0, 1.0, 0.03))
                     } else {
                         None
