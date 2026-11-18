@@ -11,7 +11,7 @@ pub enum LineResult {
     Value(String, String),
     /// "---" subtotal: dimmed, rule above, not clickable
     Subtotal(String),
-    /// Line using `sum`: like Value, with a rule above
+    /// Line using `sum`: like Value, shown as "= x" with a rule above
     Sum(String, String),
 }
 
@@ -67,7 +67,7 @@ impl Render for ResultsPane {
                         LineResult::None => (String::new(), theme.text_dimmed),
                         LineResult::Value(display, _) => (display.clone(), theme.result),
                         LineResult::Subtotal(display) => (display.clone(), theme.result.opacity(0.6)),
-                        LineResult::Sum(display, _) => (display.clone(), theme.result),
+                        LineResult::Sum(display, _) => (format!("= {display}"), theme.result),
                     };
                     let is_subtotal = matches!(result, LineResult::Subtotal(_));
                     let has_rule = matches!(result, LineResult::Subtotal(_) | LineResult::Sum(..));
@@ -78,7 +78,10 @@ impl Render for ResultsPane {
                             _ => text.clone(),
                         }
                     } else {
-                        text.clone()
+                        match &result {
+                            LineResult::Sum(display, _) => display.clone(), // without the "= " prefix
+                            _ => text.clone(),
+                        }
                     };
                     let text_for_copy = if is_subtotal { String::new() } else { text_for_copy };
                     let visual_count = self.line_visual_counts.get(i).copied().unwrap_or(1);
