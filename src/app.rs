@@ -136,7 +136,7 @@ impl NumNumApp {
                             &val, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format,
                         );
                         results.push(LineResult::None);
-                        diagnostics.push(Some(Inlay { text: format!("sum: {}", formatted), is_error: false }));
+                        diagnostics.push(Some(Inlay { text: format!("subtotal: {}", formatted), is_error: false }));
                     }
                     Ok(val) => {
                         let fmt = this.number_format;
