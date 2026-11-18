@@ -91,6 +91,8 @@ fn main() {
             KeyBinding::new("down", Down, Some("Editor")),
             KeyBinding::new("shift-left", SelectLeft, Some("Editor")),
             KeyBinding::new("shift-right", SelectRight, Some("Editor")),
+            KeyBinding::new("shift-up", SelectUp, Some("Editor")),
+            KeyBinding::new("shift-down", SelectDown, Some("Editor")),
             KeyBinding::new("cmd-a", SelectAll, Some("Editor")),
             KeyBinding::new("ctrl-a", SelectAll, Some("Editor")),
             KeyBinding::new("home", Home, Some("Editor")),

@@ -57,6 +57,8 @@ actions!(
         Down,
         SelectLeft,
         SelectRight,
+        SelectUp,
+        SelectDown,
         SelectAll,
         Home,
         End,
@@ -655,11 +657,22 @@ impl Editor {
             self.completion_move_up(cx);
             return;
         }
+        self.move_to(self.offset_line_above(), cx);
+    }
+
+    /// Cursor offset one line up, same column (start of document on the first line).
+    fn offset_line_above(&self) -> usize {
         let (line, col) = self.line_col_for_offset(self.cursor_offset());
-        if line > 0 {
-            self.move_to(self.offset_for_line_col(line - 1, col), cx);
+        if line > 0 { self.offset_for_line_col(line - 1, col) } else { 0 }
+    }
+
+    /// Cursor offset one line down, same column (end of document on the last line).
+    fn offset_line_below(&self) -> usize {
+        let (line, col) = self.line_col_for_offset(self.cursor_offset());
+        if line + 1 < self.line_count() {
+            self.offset_for_line_col(line + 1, col)
         } else {
-            self.move_to(0, cx);
+            self.content.len()
         }
     }
 
@@ -668,13 +681,7 @@ impl Editor {
             self.completion_move_down(cx);
             return;
         }
-        let (line, col) = self.line_col_for_offset(self.cursor_offset());
-        let count = self.line_count();
-        if line + 1 < count {
-            self.move_to(self.offset_for_line_col(line + 1, col), cx);
-        } else {
-            self.move_to(self.content.len(), cx);
-        }
+        self.move_to(self.offset_line_below(), cx);
     }
 
     fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
@@ -693,6 +700,16 @@ impl Editor {
 
     fn select_right(&mut self, _: &SelectRight, _: &mut Window, cx: &mut Context<Self>) {
         self.select_to(self.next_boundary(self.cursor_offset()), cx);
+    }
+
+    fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.completion.visible = false;
+        self.select_to(self.offset_line_above(), cx);
+    }
+
+    fn select_down(&mut self, _: &SelectDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.completion.visible = false;
+        self.select_to(self.offset_line_below(), cx);
     }
 
     fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
@@ -1757,6 +1774,8 @@ impl Render for Editor {
             .on_action(cx.listener(Self::down))
             .on_action(cx.listener(Self::select_left))
             .on_action(cx.listener(Self::select_right))
+            .on_action(cx.listener(Self::select_up))
+            .on_action(cx.listener(Self::select_down))
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::home))
             .on_action(cx.listener(Self::end))
