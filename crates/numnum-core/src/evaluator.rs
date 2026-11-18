@@ -59,6 +59,8 @@ pub struct EvalContext {
     rate_overrides: HashMap<(CurrencyId, CurrencyId), f64>,
     /// Index in `aggregation_window` where the next "---" subtotal starts.
     subtotal_start: usize,
+    /// True when the last evaluated line used `sum`/`total` (the UI draws a rule above it).
+    pub last_line_used_sum: bool,
 }
 
 impl Default for EvalContext {
@@ -77,6 +79,7 @@ impl EvalContext {
             number_format: NumberFormat::US,
             rate_overrides: HashMap::new(),
             subtotal_start: 0,
+            last_line_used_sum: false,
         }
     }
 
@@ -90,6 +93,7 @@ impl EvalContext {
             number_format: NumberFormat::US,
             rate_overrides: HashMap::new(),
             subtotal_start: 0,
+            last_line_used_sum: false,
         }
     }
 
@@ -185,6 +189,7 @@ impl EvalContext {
     }
 
     pub fn eval_line(&mut self, line: &str) -> Result<Value, EvalError> {
+        self.last_line_used_sum = false;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             self.aggregation_window.clear();
@@ -469,6 +474,7 @@ impl EvalContext {
             Expr::Aggregation(kind) => {
                 match kind {
                     AggKind::Sum => {
+                        self.last_line_used_sum = true;
                         let sum: f64 = self.aggregation_window.iter()
                             .filter_map(|v| v.as_number())
                             .sum();
@@ -2234,6 +2240,19 @@ mod unicode_tests {
         let mut ctx = EvalContext::new();
         assert!(ctx.eval_line("3.594.272").is_err());
         assert!(ctx.eval_line("3 594 272").is_err());
+    }
+
+    #[test]
+    fn test_last_line_used_sum_flag() {
+        let mut ctx = EvalContext::new();
+        ctx.eval_line("10").unwrap();
+        assert!(!ctx.last_line_used_sum);
+        ctx.eval_line("sum").unwrap();
+        assert!(ctx.last_line_used_sum);
+        ctx.eval_line("x = sum").unwrap();
+        assert!(ctx.last_line_used_sum);
+        ctx.eval_line("10").unwrap();
+        assert!(!ctx.last_line_used_sum);
     }
 
     #[test]

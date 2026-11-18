@@ -9,8 +9,10 @@ pub enum LineResult {
     None,
     /// display_text, full_precision_copy_text
     Value(String, String),
-    /// "---" subtotal: shown with a rule above, not clickable
+    /// "---" subtotal: dimmed, rule above, not clickable
     Subtotal(String),
+    /// Line using `sum`: like Value, with a rule above
+    Sum(String, String),
 }
 
 pub struct ResultsPane {
@@ -64,13 +66,15 @@ impl Render for ResultsPane {
                     let (text, color) = match &result {
                         LineResult::None => (String::new(), theme.text_dimmed),
                         LineResult::Value(display, _) => (display.clone(), theme.result),
-                        LineResult::Subtotal(display) => (display.clone(), theme.result),
+                        LineResult::Subtotal(display) => (display.clone(), theme.result.opacity(0.6)),
+                        LineResult::Sum(display, _) => (display.clone(), theme.result),
                     };
                     let is_subtotal = matches!(result, LineResult::Subtotal(_));
+                    let has_rule = matches!(result, LineResult::Subtotal(_) | LineResult::Sum(..));
 
                     let text_for_copy = if self.copy_full_precision {
                         match &result {
-                            LineResult::Value(_, full) => full.clone(),
+                            LineResult::Value(_, full) | LineResult::Sum(_, full) => full.clone(),
                             _ => text.clone(),
                         }
                     } else {
@@ -101,12 +105,12 @@ impl Render for ResultsPane {
                                         },
                                     )
                             })
-                            .when(!is_subtotal, |el| el.child(text.clone()))
-                            .when(is_subtotal, |el| {
+                            .when(!has_rule, |el| el.child(text.clone()))
+                            .when(has_rule, |el| {
                                 el.child(
                                     div()
                                         .border_t_1()
-                                        .border_color(theme.text_dimmed)
+                                        .border_color(theme.text_dimmed.opacity(0.5))
                                         .child(text.clone()),
                                 )
                             })

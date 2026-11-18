@@ -151,7 +151,11 @@ impl NumNumApp {
                             last_val = val.clone();
                             has_any_value = true;
                         }
-                        results.push(LineResult::Value(formatted, full_precision));
+                        if eval_ctx.last_line_used_sum {
+                            results.push(LineResult::Sum(formatted, full_precision));
+                        } else {
+                            results.push(LineResult::Value(formatted, full_precision));
+                        }
                         diagnostics.push(None);
                     }
                     Err(e) => {
