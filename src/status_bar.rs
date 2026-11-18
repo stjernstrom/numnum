@@ -8,6 +8,8 @@ pub struct StatusBar {
     line: usize,
     col: usize,
     running_total: String,
+    /// Sum of the selected lines, shown instead of the total when set
+    selected_total: Option<String>,
     /// Short message shown instead of the total for a moment (e.g. "Copied")
     flash: Option<String>,
     flash_epoch: usize,
@@ -26,6 +28,7 @@ impl StatusBar {
             line: 1,
             col: 1,
             running_total: String::new(),
+            selected_total: None,
             flash: None,
             flash_epoch: 0,
             theme,
@@ -56,6 +59,11 @@ impl StatusBar {
                 });
             }
         }).detach();
+        cx.notify();
+    }
+
+    pub fn set_selected_total(&mut self, total: Option<String>, cx: &mut Context<Self>) {
+        self.selected_total = total;
         cx.notify();
     }
 
@@ -142,6 +150,8 @@ impl Render for StatusBar {
                     .justify_center()
                     .child(if let Some(message) = &self.flash {
                         message.clone()
+                    } else if let Some(selected) = &self.selected_total {
+                        format!("Selected: {}", selected)
                     } else if self.running_total.is_empty() {
                         String::new()
                     } else {
