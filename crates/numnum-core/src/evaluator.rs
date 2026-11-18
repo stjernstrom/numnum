@@ -308,6 +308,29 @@ impl EvalContext {
                             _ => Err(EvalError::TypeMismatch("Cannot convert this value to a unit".to_string())),
                         }
                     }
+                    ConversionTarget::Rate(to_num, to_den) => {
+                        let target = vec![(*to_num, 1), (*to_den, -1)];
+                        match v {
+                            Value::WithCompoundUnit(n, ref factors) if factors.len() == 2 => {
+                                let (from_num, from_den) = match (factors[0], factors[1]) {
+                                    ((a, 1), (b, -1)) | ((b, -1), (a, 1)) => (a, b),
+                                    _ => return Err(EvalError::IncompatibleUnits),
+                                };
+                                let ut = &self.unit_table;
+                                let (fnum, fden, tnum, tden) = match (ut.get(from_num), ut.get(from_den), ut.get(*to_num), ut.get(*to_den)) {
+                                    (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+                                    _ => return Err(EvalError::IncompatibleUnits),
+                                };
+                                if fnum.dimension != tnum.dimension || fden.dimension != tden.dimension {
+                                    return Err(EvalError::IncompatibleUnits);
+                                }
+                                let converted = n * (fnum.to_base / fden.to_base) / (tnum.to_base / tden.to_base);
+                                Ok(Value::WithCompoundUnit(converted, target))
+                            }
+                            Value::Number(n) => Ok(Value::WithCompoundUnit(n, target)),
+                            _ => Err(EvalError::IncompatibleUnits),
+                        }
+                    }
                     ConversionTarget::Currency(to_currency) => {
                         match v {
                             Value::WithCurrency(n, from_currency) => {
@@ -678,15 +701,20 @@ impl EvalContext {
             {
                 let exp: i8 = if matches!(op, BinOp::Div) { -1 } else { 1 };
                 let mut new_factors = factors.clone();
-                merge_unit_factor(&mut new_factors, *u, exp);
-                simplify_compound(result, new_factors, &self.unit_table)
+                let scale = merge_unit_factor(&mut new_factors, *u, exp, &self.unit_table);
+                simplify_compound(result * scale, new_factors, &self.unit_table)
             }
             (Value::WithUnit(_, u), Value::WithCompoundUnit(_, factors))
-                if matches!(op, BinOp::Mul) =>
+                if matches!(op, BinOp::Mul | BinOp::Div) =>
             {
-                let mut new_factors = factors.clone();
-                merge_unit_factor(&mut new_factors, *u, 1);
-                simplify_compound(result, new_factors, &self.unit_table)
+                // unit / compound inverts the compound (e.g. GB / (Mb/s) → GB·s/Mb)
+                let mut new_factors: Vec<(UnitId, i8)> = if matches!(op, BinOp::Div) {
+                    factors.iter().map(|&(id, e)| (id, -e)).collect()
+                } else {
+                    factors.clone()
+                };
+                let scale = merge_unit_factor(&mut new_factors, *u, 1, &self.unit_table);
+                simplify_compound(result * scale, new_factors, &self.unit_table)
             }
             // Other compound × unit combinations → plain number
             (Value::WithCompoundUnit(..), Value::WithUnit(..))
@@ -764,14 +792,29 @@ fn is_valid_compound(num_dim: Dimension, den_dim: Dimension, op: BinOp) -> bool 
     }
 }
 
-fn merge_unit_factor(factors: &mut Vec<(UnitId, i8)>, unit: UnitId, exp: i8) {
+/// Merge `unit^exp` into `factors`. A factor of the same dimension absorbs it
+/// (e.g. Mb/s × h: h is converted to s). Returns the factor to scale the value by.
+fn merge_unit_factor(factors: &mut Vec<(UnitId, i8)>, unit: UnitId, exp: i8, unit_table: &UnitTable) -> f64 {
     for entry in factors.iter_mut() {
         if entry.0 == unit {
             entry.1 += exp;
-            return;
+            return 1.0;
+        }
+    }
+    if let Some(u) = unit_table.get(unit) {
+        if u.dimension != Dimension::Temperature {
+            for entry in factors.iter_mut() {
+                if let Some(e) = unit_table.get(entry.0) {
+                    if e.dimension == u.dimension {
+                        entry.1 += exp;
+                        return (u.to_base / e.to_base).powi(exp as i32);
+                    }
+                }
+            }
         }
     }
     factors.push((unit, exp));
+    1.0
 }
 
 fn simplify_compound(value: f64, mut factors: Vec<(UnitId, i8)>, unit_table: &UnitTable) -> Result<Value, EvalError> {
@@ -1950,5 +1993,79 @@ mod unicode_tests {
         let _ = ctx.eval_line("50 \u{00F7} 2");
         let _ = ctx.eval_line("\u{4EF7}\u{683C}: 100");
         let _ = ctx.eval_line("\u{1F389} + 5");
+    }
+
+    fn eval_display(input: &str) -> String {
+        let mut ctx = EvalContext::new();
+        let v = ctx.eval_line(input).unwrap();
+        crate::format::format_value(&v, &ctx.unit_table, &ctx.currency_table)
+    }
+
+    #[test]
+    fn test_data_unit_case_bytes_vs_bits() {
+        assert_eq!(eval_display("1 GB in Mb"), "8,000 Mb");
+        assert_eq!(eval_display("1 MB in kB"), "1,000 kB");
+        assert_eq!(eval_display("1 B in b"), "8 b");
+        assert_eq!(eval_display("1 KB in B"), "1,000 B");
+    }
+
+    #[test]
+    fn test_data_bit_symbols() {
+        assert_eq!(eval_display("1 Gbit in Mbit"), "1,000 Mb");
+        assert_eq!(eval_display("1 Gbit in MB"), "125 MB");
+        assert_eq!(eval_display("100 Mbit/s"), "100 Mb/s");
+    }
+
+    #[test]
+    fn test_rate_conversion() {
+        assert_eq!(eval_display("100 Mbit/s in MB/s"), "12.5 MB/s");
+        assert_eq!(eval_display("1 Gbps in Mbit/s"), "1,000 Mb/s");
+        assert_eq!(eval_display("100 Mbit/s in kbps"), "100,000 kb/s");
+        assert_eq!(eval_display("36 km/h in m/s"), "10 m/s");
+        let mut ctx = EvalContext::new();
+        assert!(ctx.eval_line("100 Mbit/s in km/h").is_err());
+    }
+
+    #[test]
+    fn test_rate_times_time() {
+        assert_eq!(eval_display("9 Mbit/s * 3 hours in GB"), "12.15 GB");
+        assert_eq!(eval_display("3 h * 9 Mbps in GB"), "12.15 GB");
+        assert_eq!(eval_display("90 km/h * 30 min"), "45 km");
+    }
+
+    #[test]
+    fn test_data_divided_by_rate() {
+        assert_eq!(eval_display("1 GB / 100 Mbps"), "80 s");
+        assert_eq!(eval_display("1 GB / 100 Mbps in min"), "1.33 min");
+    }
+
+    #[test]
+    fn test_incorrect_data_symbols_rejected() {
+        for input in ["5 mb", "5 gb", "5 tb", "5 mbit", "5 gbit", "5 mib", "5 gib", "5 kib", "1 mbps", "1 gbps", "1 MBps"] {
+            let mut ctx = EvalContext::new();
+            assert!(ctx.eval_line(input).is_err(), "{input} should be rejected");
+        }
+    }
+
+    #[test]
+    fn test_correct_data_symbols_accepted() {
+        assert_eq!(eval_display("5 kb"), "5 kb");
+        assert_eq!(eval_display("5 kbit"), "5 kb");
+        assert_eq!(eval_display("5 Mbit"), "5 Mb");
+        assert_eq!(eval_display("5 Gbits"), "5 Gb");
+        assert_eq!(eval_display("5 MiB"), "5 MiB");
+        assert_eq!(eval_display("5 megabyte"), "5 MB");
+        assert_eq!(eval_display("5 Megabit"), "5 Mb");
+        assert_eq!(eval_display("1 kbps"), "1 kb/s");
+        assert_eq!(eval_display("1 Mbps"), "1 Mb/s");
+        assert_eq!(eval_display("1 mph"), "1 mi./h");
+        assert_eq!(eval_display("1 MPH"), "1 mi./h");
+    }
+
+    #[test]
+    fn test_swedish_number_input() {
+        let mut ctx = EvalContext::new();
+        ctx.set_number_format(crate::types::NumberFormat::Swedish);
+        assert!((ctx.eval_line("1,5 + 1").unwrap().as_number().unwrap() - 2.5).abs() < 1e-10);
     }
 }

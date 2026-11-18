@@ -16,6 +16,18 @@ use std::collections::HashMap;
 use crate::theme::Theme;
 
 /// Check if a name is likely a plural form by seeing if a shorter singular exists in the same table.
+/// True when the word being typed sits where a unit is expected: right after a
+/// number ("10 M") or after a conversion keyword ("in G"). `before` is the line
+/// text up to the start of the word.
+fn is_unit_position(before: &str) -> bool {
+    let trimmed = before.trim_end();
+    if trimmed.ends_with(|c: char| c.is_ascii_digit()) {
+        return true;
+    }
+    let last_word = trimmed.rsplit(|c: char| !c.is_alphanumeric()).next().unwrap_or("");
+    matches!(last_word.to_lowercase().as_str(), "in" | "to" | "as" | "into")
+}
+
 fn is_likely_plural<V>(name: &str, table: &HashMap<String, V>) -> bool {
     if name.ends_with('s') && name.len() > 2 {
         let singular = &name[..name.len() - 1];
@@ -91,6 +103,7 @@ impl CompletionCategory {
 struct CompletionItem {
     label: String,
     category: CompletionCategory,
+    detail: Option<String>,
 }
 
 struct CompletionState {
@@ -247,6 +260,7 @@ impl Editor {
             items.push(CompletionItem {
                 label: name.to_string(),
                 category: CompletionCategory::Keyword,
+                detail: None,
             });
         }
 
@@ -259,6 +273,7 @@ impl Editor {
             items.push(CompletionItem {
                 label: name.to_string(),
                 category: CompletionCategory::Function,
+                detail: None,
             });
         }
 
@@ -267,6 +282,7 @@ impl Editor {
             items.push(CompletionItem {
                 label: name.to_string(),
                 category: CompletionCategory::Constant,
+                detail: None,
             });
         }
 
@@ -275,6 +291,7 @@ impl Editor {
             items.push(CompletionItem {
                 label: name.to_string(),
                 category: CompletionCategory::Aggregation,
+                detail: None,
             });
         }
 
@@ -286,15 +303,35 @@ impl Editor {
             items.push(CompletionItem {
                 label: name.to_string(),
                 category: CompletionCategory::Scale,
+                detail: None,
+            });
+        }
+
+        // Case-sensitive data symbols, shown with their full name: "MB (Megabyte)", "Mb (Megabit)"
+        let mut data_symbols_lower = std::collections::HashSet::new();
+        for (sym, def) in self.unit_table.case_sensitive_symbols() {
+            data_symbols_lower.insert(sym.to_lowercase());
+            if sym.ends_with("bits") { continue; } // plural, works when typed
+            let mut name = def.canonical.clone();
+            if let Some(first) = name.get_mut(0..1) {
+                first.make_ascii_uppercase();
+            }
+            items.push(CompletionItem {
+                label: sym.to_string(),
+                category: CompletionCategory::Unit,
+                detail: Some(name),
             });
         }
 
         // Units — singular forms only (plurals work when typed, just not suggested)
         for name in self.unit_table.name_to_id.keys() {
             if is_likely_plural(name, &self.unit_table.name_to_id) { continue; }
+            // Lowercase "mb"/"gb" are ambiguous; the case-sensitive symbols above replace them
+            if data_symbols_lower.contains(name) { continue; }
             items.push(CompletionItem {
                 label: name.clone(),
                 category: CompletionCategory::Unit,
+                detail: None,
             });
         }
 
@@ -304,6 +341,7 @@ impl Editor {
             items.push(CompletionItem {
                 label: name.clone(),
                 category: CompletionCategory::Currency,
+                detail: None,
             });
         }
 
@@ -312,6 +350,7 @@ impl Editor {
             items.push(CompletionItem {
                 label: name.clone(),
                 category: CompletionCategory::Variable,
+                detail: None,
             });
         }
 
@@ -380,13 +419,21 @@ impl Editor {
             return;
         }
 
-        // Must be >= 2 chars, starting with alphabetic
-        if prefix.len() >= 2
+        // Must start with alphabetic and be >= 2 chars, or 1 char where a unit is expected
+        let line_before = self.content[..prefix_start].rsplit('\n').next().unwrap_or("");
+        let min_len = if is_unit_position(line_before) { 1 } else { 2 };
+        if prefix.len() >= min_len
             && prefix.bytes().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
         {
+            let typed = prefix.to_string();
             self.completion.anchor_offset = prefix_start;
             self.completion.prefix = prefix.to_lowercase();
             self.filter_completions();
+            // An exact match goes first, so Enter keeps what was typed ("5 m" stays "m", not "MB")
+            if let Some(pos) = self.completion.filtered.iter().position(|i| i.label == typed) {
+                let item = self.completion.filtered.remove(pos);
+                self.completion.filtered.insert(0, item);
+            }
             self.completion.visible = !self.completion.filtered.is_empty();
             self.completion.selected_index = 0;
         } else {
@@ -1616,7 +1663,10 @@ impl Editor {
                 CompletionCategory::Variable => self.theme.syn_variable,
                 CompletionCategory::Aggregation => self.theme.syn_function,
             };
-            let label = item.label.clone();
+            let label = match &item.detail {
+                Some(detail) => format!("{} ({})", item.label, detail),
+                None => item.label.clone(),
+            };
             let cat_label = item.category.label().to_string();
             let entity_clone = entity.clone();
 
@@ -1822,3 +1872,19 @@ impl Focusable for Editor {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::is_unit_position;
+
+    #[test]
+    fn test_is_unit_position() {
+        assert!(is_unit_position("10 "));
+        assert!(is_unit_position("10 Mbit/s * 1 Hours in "));
+        assert!(is_unit_position("5 km to "));
+        assert!(is_unit_position("x INTO "));
+        assert!(!is_unit_position(""));
+        assert!(!is_unit_position("10 Mbit/s * "));
+        assert!(!is_unit_position("price "));
+        assert!(!is_unit_position("10 min "));
+    }
+}

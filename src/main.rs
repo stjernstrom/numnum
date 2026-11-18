@@ -12,7 +12,7 @@ use gpui::{App, Bounds, Focusable, KeyBinding, Point, SharedString, TitlebarOpti
 use gpui_platform::application;
 use numnum_core::{Settings, ThemeFile};
 
-use crate::app::NumNumApp;
+use crate::app::{CloseWindow, NumNumApp};
 use crate::editor::*;
 use crate::settings_pane::EscapeSettings;
 use crate::theme::Theme;
@@ -97,10 +97,12 @@ fn main() {
             KeyBinding::new("end", End, Some("Editor")),
             KeyBinding::new("cmd-c", Copy, Some("Editor")),
             KeyBinding::new("ctrl-c", Copy, Some("Editor")),
+            KeyBinding::new("ctrl-shift-c", Copy, Some("Editor")),
             KeyBinding::new("cmd-x", Cut, Some("Editor")),
             KeyBinding::new("ctrl-x", Cut, Some("Editor")),
             KeyBinding::new("cmd-v", Paste, Some("Editor")),
             KeyBinding::new("ctrl-v", Paste, Some("Editor")),
+            KeyBinding::new("ctrl-shift-v", Paste, Some("Editor")),
             KeyBinding::new("cmd-z", Undo, Some("Editor")),
             KeyBinding::new("ctrl-z", Undo, Some("Editor")),
             KeyBinding::new("cmd-shift-z", Redo, Some("Editor")),
@@ -108,6 +110,7 @@ fn main() {
             KeyBinding::new("tab", Tab, Some("Editor")),
             KeyBinding::new("escape", Escape, Some("Editor")),
             KeyBinding::new("escape", EscapeSettings, Some("SettingsPane")),
+            KeyBinding::new("super-w", CloseWindow, None),
         ]);
 
         let font_size = settings.editor.font_size;

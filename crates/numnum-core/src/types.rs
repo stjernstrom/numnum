@@ -6,6 +6,7 @@ pub enum NumberFormat {
     US,       // 1,234,567.89
     Indian,   // 12,34,567.89
     European, // 1.234.567,89
+    Swedish,  // 1 234 567,89
 }
 
 impl NumberFormat {
@@ -13,6 +14,7 @@ impl NumberFormat {
         match s {
             "indian" => Self::Indian,
             "european" => Self::European,
+            "swedish" => Self::Swedish,
             _ => Self::US,
         }
     }
@@ -63,6 +65,8 @@ pub struct CurrencyDef {
 pub struct UnitTable {
     pub units: Vec<UnitDef>,
     pub name_to_id: HashMap<String, UnitId>,
+    /// Data symbols where case matters (MB = megabyte, Mb = megabit). Checked before `name_to_id`.
+    exact_case: HashMap<String, UnitId>,
     squared_cache: HashMap<UnitId, UnitId>,
     pub compound_shorthands: HashMap<String, (UnitId, UnitId)>, // "mph" → (mile_id, hour_id)
 }
@@ -90,6 +94,7 @@ impl UnitTable {
         let mut table = UnitTable {
             units: Vec::new(),
             name_to_id: HashMap::new(),
+            exact_case: HashMap::new(),
             squared_cache: HashMap::new(),
             compound_shorthands: HashMap::new(),
         };
@@ -196,15 +201,32 @@ impl UnitTable {
             ];
             let v_refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
             self.add(&name, &display, Dimension::Data, factor * 8.0, 0.0, &v_refs); // base is bit
+            self.register_data_symbols(symbol, &[display]);
         } else {
             let name = format!("{}bit", prefix);
             let display = format!("{}b", symbol);
             let variants: Vec<String> = vec![
                 format!("{}bit", prefix), format!("{}bits", prefix),
                 format!("{}b", symbol),
+                format!("{}bit", symbol), format!("{}bits", symbol),
             ];
             let v_refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
             self.add(&name, &display, Dimension::Data, factor, 0.0, &v_refs);
+            self.register_data_symbols(symbol, &[display, format!("{}bit", symbol), format!("{}bits", symbol)]);
+        }
+    }
+
+    /// Register case-sensitive symbols for the unit just added. For uppercase prefixes
+    /// (M, G, T, Ki, ...) the lowercase forms ("mb", "gbit", "mib") are wrong, so they are
+    /// removed from the case-insensitive table and the symbol must be typed correctly.
+    fn register_data_symbols(&mut self, prefix_symbol: &str, symbols: &[String]) {
+        let id = UnitId(self.units.len() as u16 - 1);
+        let strict = prefix_symbol.starts_with(|c: char| c.is_ascii_uppercase());
+        for s in symbols {
+            self.exact_case.insert(s.clone(), id);
+            if strict {
+                self.name_to_id.remove(&s.to_lowercase());
+            }
         }
     }
 
@@ -353,6 +375,10 @@ impl UnitTable {
             self.add_si_data(prefix, sym, factor, true);  // bytes
             self.add_si_data(prefix, sym, factor, false); // bits
         }
+        // Common "KB" spelling for kilobyte
+        if let Some(id) = self.exact_case.get("kB").copied() {
+            self.exact_case.insert("KB".to_string(), id);
+        }
         // IEC binary prefixes (bytes only)
         let iec: &[(&str, &str, f64)] = &[
             ("kibi", "Ki", 1024.0), ("mebi", "Mi", 1048576.0),
@@ -364,6 +390,7 @@ impl UnitTable {
             let variants = [format!("{}B", sym)];
             let v_refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
             self.add(&name, &display, Dimension::Data, factor * 8.0, 0.0, &v_refs);
+            self.register_data_symbols(sym, &[display]);
         }
     }
 
@@ -460,11 +487,11 @@ impl UnitTable {
             ("knot", "nautical_mile", "hour"),
             ("knots", "nautical_mile", "hour"),
             ("kn", "nautical_mile", "hour"),
-            // Data rate
+            // Data rate (case-sensitive: Mbps, not mbps or MBps)
             ("bps", "bit", "second"),
             ("kbps", "kilobit", "second"),
-            ("mbps", "megabit", "second"),
-            ("gbps", "gigabit", "second"),
+            ("Mbps", "megabit", "second"),
+            ("Gbps", "gigabit", "second"),
         ];
         for &(short, num_name, den_name) in shorthands {
             if let (Some(num_id), Some(den_id)) = (self.lookup_by_canonical(num_name), self.lookup_by_canonical(den_name)) {
@@ -479,7 +506,15 @@ impl UnitTable {
             .map(|(i, _)| UnitId(i as u16))
     }
 
+    /// Case-sensitive data symbols (MB, Mb, KiB, ...) with their unit definitions.
+    pub fn case_sensitive_symbols(&self) -> impl Iterator<Item = (&str, &UnitDef)> {
+        self.exact_case.iter().filter_map(|(sym, id)| self.get(*id).map(|u| (sym.as_str(), u)))
+    }
+
     pub fn lookup(&self, name: &str) -> Option<UnitId> {
+        if let Some(id) = self.exact_case.get(name) {
+            return Some(*id);
+        }
         self.name_to_id.get(&name.to_lowercase()).copied()
     }
 
@@ -947,6 +982,7 @@ pub enum AggKind { Sum, Average, Prev }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConversionTarget {
     Unit(UnitId),
+    Rate(UnitId, UnitId), // numerator / denominator, e.g. MB/s
     Currency(CurrencyId),
     Repr(ReprKind),
 }
@@ -1075,6 +1111,17 @@ mod tests {
         for v in &["brl", "real", "reais", "r$", "brazilian real"] {
             assert_eq!(ct.lookup(v), Some(brl_id), "BRL variant '{}' missing", v);
         }
+    }
+
+    #[test]
+    fn test_case_sensitive_data_symbols() {
+        let ut = UnitTable::new();
+        let syms: HashMap<&str, &str> = ut.case_sensitive_symbols()
+            .map(|(s, u)| (s, u.canonical.as_str())).collect();
+        assert_eq!(syms.get("MB"), Some(&"megabyte"));
+        assert_eq!(syms.get("Mb"), Some(&"megabit"));
+        assert_eq!(syms.get("GB"), Some(&"gigabyte"));
+        assert_eq!(syms.get("Gb"), Some(&"gigabit"));
     }
 
     #[test]

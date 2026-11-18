@@ -111,6 +111,7 @@ impl SettingsPane {
         let next = match self.settings.editor.number_format.as_str() {
             "us" => "indian",
             "indian" => "european",
+            "european" => "swedish",
             _ => "us",
         };
         self.settings.editor.number_format = next.to_string();
@@ -236,6 +237,7 @@ impl Render for SettingsPane {
         let number_format_val = match settings.editor.number_format.as_str() {
             "indian" => "Indian",
             "european" => "European",
+            "swedish" => "Swedish",
             _ => "US",
         };
         let title_bar_val = match settings.window.title_bar.as_str() {
@@ -664,7 +666,7 @@ impl Render for SettingsPane {
                                 ),
                         ),
                     )
-                    // Number Format (cycle US → Indian → European)
+                    // Number Format (cycle US → Indian → European → Swedish)
                     .child(
                         setting_row(
                             &theme,

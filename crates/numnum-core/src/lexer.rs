@@ -288,8 +288,8 @@ impl<'a> Lexer<'a> {
         }
         let raw = &self.processed_input[start..self.pos];
         let num_str: String = match self.number_format {
-            NumberFormat::European => {
-                // European: dots are thousands separators, comma is decimal
+            NumberFormat::European | NumberFormat::Swedish => {
+                // European/Swedish: dots are thousands separators, comma is decimal
                 raw.chars().filter(|c| *c != '.').map(|c| if c == ',' { '.' } else { c }).collect()
             }
             _ => {
@@ -404,8 +404,8 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Unit lookup
-        if let Some(id) = self.unit_table.lookup(&lower) {
+        // Unit lookup (original case, so MB and Mb resolve differently)
+        if let Some(id) = self.unit_table.lookup(&word) {
             return Token { kind: TokenKind::Unit(id), span: start..self.pos };
         }
 
@@ -415,7 +415,10 @@ impl<'a> Lexer<'a> {
         }
 
         // Compound unit shorthand (e.g. mph, kmh, bps)
-        if let Some(&(num_id, den_id)) = self.unit_table.compound_shorthands.get(&lower) {
+        // Exact case first (Mbps), then lowercase (mph, MPH)
+        let shorthand = self.unit_table.compound_shorthands.get(&word)
+            .or_else(|| self.unit_table.compound_shorthands.get(&lower));
+        if let Some(&(num_id, den_id)) = shorthand {
             return Token { kind: TokenKind::CompoundUnitShorthand(num_id, den_id), span: start..self.pos };
         }
 

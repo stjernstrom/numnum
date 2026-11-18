@@ -372,7 +372,23 @@ impl Parser {
                     TokenKind::Unit(id) => {
                         let id = *id;
                         self.advance();
+                        // Rate target: "in MB/s"
+                        if matches!(self.peek(), TokenKind::Op(BinOp::Div)) {
+                            let saved = self.pos;
+                            self.advance();
+                            if let TokenKind::Unit(den_id) = self.peek() {
+                                let den_id = *den_id;
+                                self.advance();
+                                return Ok(Expr::Conversion { expr: Box::new(lhs), target: ConversionTarget::Rate(id, den_id) });
+                            }
+                            self.pos = saved;
+                        }
                         Ok(Expr::Conversion { expr: Box::new(lhs), target: ConversionTarget::Unit(id) })
+                    }
+                    TokenKind::CompoundUnitShorthand(num_id, den_id) => {
+                        let (num_id, den_id) = (*num_id, *den_id);
+                        self.advance();
+                        Ok(Expr::Conversion { expr: Box::new(lhs), target: ConversionTarget::Rate(num_id, den_id) })
                     }
                     TokenKind::Currency(id) => {
                         let id = *id;

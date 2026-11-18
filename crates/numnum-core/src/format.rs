@@ -105,7 +105,7 @@ fn format_with_separators(s: &str, fmt: NumberFormat) -> String {
 
     if int_part.len() <= 3 {
         let result = format!("{}{}{}", sign, int_part, frac_part);
-        if matches!(fmt, NumberFormat::European) {
+        if matches!(fmt, NumberFormat::European | NumberFormat::Swedish) {
             return result.replace('.', ",");
         }
         return result;
@@ -114,6 +114,7 @@ fn format_with_separators(s: &str, fmt: NumberFormat) -> String {
     let (thousands_sep, decimal_sep) = match fmt {
         NumberFormat::US | NumberFormat::Indian => (',', '.'),
         NumberFormat::European => ('.', ','),
+        NumberFormat::Swedish => (' ', ','),
     };
 
     let mut result = String::with_capacity(s.len() + int_part.len() / 2);
@@ -140,7 +141,7 @@ fn format_with_separators(s: &str, fmt: NumberFormat) -> String {
             }
             result.push_str(&int_part[last3_start..]);
         }
-        NumberFormat::US | NumberFormat::European => {
+        NumberFormat::US | NumberFormat::European | NumberFormat::Swedish => {
             // Groups of 3 from right
             let first_group = int_part.len() % 3;
             if first_group > 0 {
@@ -264,5 +265,13 @@ mod tests {
         assert_eq!(format_number(1234567.0, 2, NumberFormat::European), "1.234.567");
         assert_eq!(format_number(1234567.89, 2, NumberFormat::European), "1.234.567,89");
         assert_eq!(format_number(5000.0, 2, NumberFormat::European), "5.000");
+    }
+
+    #[test]
+    fn test_format_swedish() {
+        assert_eq!(format_number(1234567.0, 2, NumberFormat::Swedish), "1 234 567");
+        assert_eq!(format_number(1234567.89, 2, NumberFormat::Swedish), "1 234 567,89");
+        assert_eq!(format_number(-5000.5, 2, NumberFormat::Swedish), "-5 000,5");
+        assert_eq!(format_number(3.14, 2, NumberFormat::Swedish), "3,14");
     }
 }

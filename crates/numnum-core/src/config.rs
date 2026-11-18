@@ -78,7 +78,7 @@ pub struct EditorSettings {
     pub copy_full_precision: bool,
     pub precision: u32,
     pub show_diagnostics: bool,
-    pub number_format: String, // "us", "indian", "european"
+    pub number_format: String, // "us", "indian", "european", "swedish"
 }
 
 #[derive(Debug, Clone, Copy)]

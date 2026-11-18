@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use gpui::{
     App, ClickEvent, Context, CursorStyle, Entity, Focusable, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent,
-    SharedString, Window, div, point, prelude::*, px, svg,
+    SharedString, Window, actions, div, point, prelude::*, px, svg,
 };
 
 use gpui::relative;
@@ -19,6 +19,8 @@ use crate::results_pane::{LineResult, ResultsPane};
 use crate::settings_pane::SettingsPane;
 use crate::status_bar::StatusBar;
 use crate::theme::Theme;
+
+actions!(numnum, [CloseWindow]);
 
 pub struct NumNumApp {
     pub editor: Entity<Editor>,
@@ -496,6 +498,7 @@ impl Render for NumNumApp {
         let bg = self.theme.background;
 
         div()
+            .on_action(|_: &CloseWindow, window, _cx| window.remove_window())
             .flex()
             .flex_col()
             .size_full()
