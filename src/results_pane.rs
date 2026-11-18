@@ -14,7 +14,7 @@ pub enum LineResult {
 
 pub struct ResultsPane {
     results: Vec<LineResult>,
-    has_diagnostic: Vec<bool>,
+    inlays: Vec<Option<Inlay>>,
     pub copy_full_precision: bool,
     pub line_visual_counts: Vec<usize>,
     pub theme: Theme,
@@ -24,7 +24,7 @@ impl ResultsPane {
     pub fn new(theme: Theme, copy_full_precision: bool) -> Self {
         ResultsPane {
             results: Vec::new(),
-            has_diagnostic: Vec::new(),
+            inlays: Vec::new(),
             copy_full_precision,
             line_visual_counts: Vec::new(),
             theme,
@@ -37,7 +37,7 @@ impl ResultsPane {
         diagnostics: &[Option<Inlay>],
         cx: &mut Context<Self>,
     ) {
-        self.has_diagnostic = diagnostics.iter().map(|d| d.is_some()).collect();
+        self.inlays = diagnostics.to_vec();
         self.results = results;
         cx.notify();
     }
@@ -49,7 +49,7 @@ impl Render for ResultsPane {
         let theme = self.theme.clone();
         let results = self.results.clone();
 
-        let has_diag = self.has_diagnostic.clone();
+        let inlays = self.inlays.clone();
 
         div()
             .flex()
@@ -101,14 +101,26 @@ impl Render for ResultsPane {
                             .into_any_element(),
                     );
 
-                    // Insert empty spacer if this line has a diagnostic inlay
-                    if has_diag.get(i).copied().unwrap_or(false) {
-                        children.push(
-                            div()
-                                .w_full()
-                                .h(line_height * 0.8) // proportional diagnostic spacer
-                                .into_any_element(),
-                        );
+                    // Spacer matching the editor's inlay row. A "---" subtotal is shown
+                    // here, right-aligned with a rule above it.
+                    if let Some(Some(inlay)) = inlays.get(i) {
+                        let mut spacer = div()
+                            .w_full()
+                            .h(line_height * 0.8) // proportional diagnostic spacer
+                            .flex()
+                            .justify_end()
+                            .px(px(8.));
+                        if !inlay.is_error {
+                            spacer = spacer.child(
+                                div()
+                                    .border_t_1()
+                                    .border_color(theme.text_dimmed)
+                                    .text_size(window.rem_size() * 0.75)
+                                    .text_color(theme.result)
+                                    .child(inlay.text.clone()),
+                            );
+                        }
+                        children.push(spacer.into_any_element());
                     }
                 }
                 children

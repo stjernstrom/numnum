@@ -1779,7 +1779,6 @@ impl Render for Editor {
                 let gutter_pad = self.font_size * GUTTER_PADDING_FACTOR;
                 let dimmed = self.theme.text_dimmed;
                 let error_color = self.theme.error;
-                let subtotal_color = self.theme.result;
                 let lh = self.line_height;
                 let visual_counts = &self.line_visual_counts;
                 let mut children: Vec<gpui::AnyElement> = Vec::new();
@@ -1848,8 +1847,9 @@ impl Render for Editor {
                                     .pl(gutter_w + gutter_pad)
                                     .py(px(2.))
                                     .text_size(self.font_size * 0.75)
-                                    .text_color(if inlay.is_error { error_color } else { subtotal_color })
-                                    .child(inlay.text.clone())
+                                    .text_color(error_color)
+                                    // Subtotals are drawn in the results pane; keep the row height here
+                                    .child(if inlay.is_error { inlay.text.clone() } else { "\u{00A0}".to_string() })
                                     .into_any_element(),
                             );
                         }
