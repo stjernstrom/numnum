@@ -128,7 +128,7 @@ impl NumNumApp {
             let mut running_total: f64 = 0.0;
             let mut last_val = Value::None;
             let mut has_any_value = false;
-            // Per-line values for the selection sum (sum lines left out so they aren't counted twice)
+            // Per-line values for the selection sum (sum lines left out, like the total)
             let mut line_values: Vec<Option<Value>> = Vec::new();
 
             for line_text in content.split('\n') {
@@ -153,14 +153,15 @@ impl NumNumApp {
                         let full_precision = format_value_full_precision(
                             &val, &eval_ctx.unit_table, &eval_ctx.currency_table, fmt,
                         );
-                        if let Some(n) = val.as_number() {
-                            running_total += n;
-                            last_val = val.clone();
-                            has_any_value = true;
-                        }
                         if eval_ctx.last_line_used_sum {
                             results.push(LineResult::Sum(formatted, full_precision));
                         } else {
+                            // Sum lines are left out of the total so values aren't counted twice
+                            if let Some(n) = val.as_number() {
+                                running_total += n;
+                                last_val = val.clone();
+                                has_any_value = true;
+                            }
                             line_values.push(Some(val.clone()));
                             results.push(LineResult::Value(formatted, full_precision));
                         }

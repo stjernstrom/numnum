@@ -8,7 +8,7 @@ pub struct StatusBar {
     line: usize,
     col: usize,
     running_total: String,
-    /// Sum of the selected lines, shown instead of the total when set
+    /// Sum of the selected lines, shown next to the total when set
     selected_total: Option<String>,
     /// Short message shown instead of the total for a moment (e.g. "Copied")
     flash: Option<String>,
@@ -150,12 +150,16 @@ impl Render for StatusBar {
                     .justify_center()
                     .child(if let Some(message) = &self.flash {
                         message.clone()
-                    } else if let Some(selected) = &self.selected_total {
-                        format!("Selected: {}", selected)
-                    } else if self.running_total.is_empty() {
-                        String::new()
                     } else {
-                        format!("Total: {}", self.running_total)
+                        let total = if self.running_total.is_empty() {
+                            String::new()
+                        } else {
+                            format!("Sum total: {}", self.running_total)
+                        };
+                        match &self.selected_total {
+                            Some(selected) => format!("{}    Selected rows: {}", total, selected).trim_start().to_string(),
+                            None => total,
+                        }
                     }),
             )
             // Right: Ln X, Col Y
