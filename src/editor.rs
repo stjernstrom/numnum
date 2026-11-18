@@ -62,6 +62,20 @@ actions!(
         SelectAll,
         Home,
         End,
+        SelectHome,
+        SelectEnd,
+        WordLeft,
+        WordRight,
+        SelectWordLeft,
+        SelectWordRight,
+        DocumentStart,
+        DocumentEnd,
+        SelectDocumentStart,
+        SelectDocumentEnd,
+        PageUp,
+        PageDown,
+        SelectPageUp,
+        SelectPageDown,
         Copy,
         Cut,
         Paste,
@@ -71,6 +85,29 @@ actions!(
         Escape,
     ]
 );
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Start of the word before `offset`, skipping spaces and symbols first.
+fn previous_word_start(text: &str, offset: usize) -> usize {
+    let mut chars = text[..offset].char_indices().rev().peekable();
+    while chars.next_if(|&(_, c)| !is_word_char(c)).is_some() {}
+    let mut start = 0;
+    while let Some((i, _)) = chars.next_if(|&(_, c)| is_word_char(c)) {
+        start = i;
+    }
+    start
+}
+
+/// End of the word after `offset`, skipping spaces and symbols first.
+fn next_word_end(text: &str, offset: usize) -> usize {
+    let mut chars = text[offset..].char_indices().peekable();
+    while chars.next_if(|&(_, c)| !is_word_char(c)).is_some() {}
+    while chars.next_if(|&(_, c)| is_word_char(c)).is_some() {}
+    chars.peek().map(|&(i, _)| offset + i).unwrap_or(text.len())
+}
 
 // ── Autocomplete ──────────────────────────────────────────────────────────
 
@@ -160,6 +197,8 @@ pub struct Editor {
     line_height: Pixels,
     // Per-line visual line count (1 for unwrapped, 2+ for wrapped)
     pub line_visual_counts: Vec<usize>,
+    /// Lines moved by PageUp/PageDown; the app sets it from the visible height
+    pub page_lines: usize,
     // Cursor blink state
     pub cursor_visible: bool,
     blink_epoch: usize,
@@ -200,6 +239,7 @@ impl Editor {
             last_bounds: None,
             line_height: px(26.0),
             line_visual_counts: Vec::new(),
+            page_lines: 20,
             cursor_visible: true,
             blink_epoch: 0,
             completion: CompletionState {
@@ -737,6 +777,77 @@ impl Editor {
     fn end(&mut self, _: &End, _: &mut Window, cx: &mut Context<Self>) {
         let (line, _col) = self.line_col_for_offset(self.cursor_offset());
         self.move_to(self.line_end_offset(line), cx);
+    }
+
+    fn select_home(&mut self, _: &SelectHome, _: &mut Window, cx: &mut Context<Self>) {
+        let (line, _col) = self.line_col_for_offset(self.cursor_offset());
+        self.select_to(self.line_start_offset(line), cx);
+    }
+
+    fn select_end(&mut self, _: &SelectEnd, _: &mut Window, cx: &mut Context<Self>) {
+        let (line, _col) = self.line_col_for_offset(self.cursor_offset());
+        self.select_to(self.line_end_offset(line), cx);
+    }
+
+    fn word_left(&mut self, _: &WordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(previous_word_start(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn word_right(&mut self, _: &WordRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(next_word_end(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn select_word_left(&mut self, _: &SelectWordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(previous_word_start(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn select_word_right(&mut self, _: &SelectWordRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(next_word_end(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn document_start(&mut self, _: &DocumentStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(0, cx);
+    }
+
+    fn document_end(&mut self, _: &DocumentEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(self.content.len(), cx);
+    }
+
+    fn select_document_start(&mut self, _: &SelectDocumentStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(0, cx);
+    }
+
+    fn select_document_end(&mut self, _: &SelectDocumentEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(self.content.len(), cx);
+    }
+
+    /// Cursor offset `lines` lines away, same column, clamped to the document.
+    fn offset_lines_away(&self, lines: isize) -> usize {
+        let (line, col) = self.line_col_for_offset(self.cursor_offset());
+        let target = line as isize + lines;
+        if target < 0 {
+            0
+        } else if target as usize >= self.line_count() {
+            self.content.len()
+        } else {
+            self.offset_for_line_col(target as usize, col)
+        }
+    }
+
+    fn page_up(&mut self, _: &PageUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(self.offset_lines_away(-(self.page_lines as isize)), cx);
+    }
+
+    fn page_down(&mut self, _: &PageDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(self.offset_lines_away(self.page_lines as isize), cx);
+    }
+
+    fn select_page_up(&mut self, _: &SelectPageUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(self.offset_lines_away(-(self.page_lines as isize)), cx);
+    }
+
+    fn select_page_down(&mut self, _: &SelectPageDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(self.offset_lines_away(self.page_lines as isize), cx);
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
@@ -1791,6 +1902,20 @@ impl Render for Editor {
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::home))
             .on_action(cx.listener(Self::end))
+            .on_action(cx.listener(Self::select_home))
+            .on_action(cx.listener(Self::select_end))
+            .on_action(cx.listener(Self::word_left))
+            .on_action(cx.listener(Self::word_right))
+            .on_action(cx.listener(Self::select_word_left))
+            .on_action(cx.listener(Self::select_word_right))
+            .on_action(cx.listener(Self::document_start))
+            .on_action(cx.listener(Self::document_end))
+            .on_action(cx.listener(Self::select_document_start))
+            .on_action(cx.listener(Self::select_document_end))
+            .on_action(cx.listener(Self::page_up))
+            .on_action(cx.listener(Self::page_down))
+            .on_action(cx.listener(Self::select_page_up))
+            .on_action(cx.listener(Self::select_page_down))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::paste))
@@ -1919,7 +2044,23 @@ impl Focusable for Editor {
 
 #[cfg(test)]
 mod tests {
-    use super::is_unit_position;
+    use super::{is_unit_position, next_word_end, previous_word_start};
+
+    #[test]
+    fn test_word_jumps() {
+        let t = "price = 10 SEK\nsum";
+        assert_eq!(next_word_end(t, 0), 5);      // end of "price"
+        assert_eq!(next_word_end(t, 5), 10);     // skips " = " to end of "10"
+        assert_eq!(next_word_end(t, 14), 18);    // across the newline to end of "sum"
+        assert_eq!(next_word_end(t, 18), 18);    // stays at document end
+        assert_eq!(previous_word_start(t, 18), 15); // start of "sum"
+        assert_eq!(previous_word_start(t, 15), 11); // back over newline to "SEK"
+        assert_eq!(previous_word_start(t, 8), 0);   // from after "= " to start of "price"
+        assert_eq!(previous_word_start(t, 0), 0);
+        let u = "5 kr för år";
+        assert_eq!(next_word_end(u, 4), "5 kr för".len());
+        assert_eq!(previous_word_start(u, u.len()), "5 kr för ".len());
+    }
 
     #[test]
     fn test_is_unit_position() {

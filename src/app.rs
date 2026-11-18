@@ -629,6 +629,8 @@ impl Render for NumNumApp {
         // Scrollable viewport = window height - status bar (28px) - custom titlebar if present
         let titlebar_height = if self.title_bar == "numnum" { px(32.) } else { px(0.) };
         let scroll_viewport_height = self.viewport_height - px(28.) - titlebar_height;
+        let visible_lines = (f32::from(scroll_viewport_height) / f32::from(line_height)).floor() as usize;
+        self.editor.update(cx, |editor, _| editor.page_lines = visible_lines.saturating_sub(1).max(1));
         if let Some(target_line) = self.autoscroll_to_line.take() {
             let visual_counts = &self.editor.read(cx).line_visual_counts;
             if !visual_counts.is_empty() && scroll_viewport_height > px(0.) {
