@@ -13,7 +13,7 @@ pub fn format_value_full_precision(value: &Value, unit_table: &UnitTable, curren
         format_with_separators(s, fmt)
     };
     match value {
-        Value::Number(n) => format_full(*n),
+        Value::Number(n) | Value::Subtotal(n) => format_full(*n),
         Value::NumberRepr(n, repr) => format_number_repr(*n, *repr),
         Value::WithUnit(n, id) => {
             match unit_table.get(*id) {
@@ -43,7 +43,7 @@ pub fn format_value(value: &Value, unit_table: &UnitTable, currency_table: &Curr
 
 pub fn format_value_with_precision(value: &Value, unit_table: &UnitTable, currency_table: &CurrencyTable, precision: u32, fmt: NumberFormat) -> String {
     match value {
-        Value::Number(n) => format_number(*n, precision, fmt),
+        Value::Number(n) | Value::Subtotal(n) => format_number(*n, precision, fmt),
         Value::NumberRepr(n, repr) => format_number_repr(*n, *repr),
         Value::WithUnit(n, id) => {
             match unit_table.get(*id) {

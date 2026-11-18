@@ -70,6 +70,13 @@ actions!(
     ]
 );
 
+/// Text shown on its own row below a line: an error, or a "---" subtotal.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Inlay {
+    pub text: String,
+    pub is_error: bool,
+}
+
 // ── Autocomplete ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -149,8 +156,8 @@ pub struct Editor {
     pub font_size: Pixels,
     unit_table: UnitTable,
     currency_table: CurrencyTable,
-    // Per-line diagnostics (error messages shown as inlay below the line)
-    pub diagnostics: Vec<Option<String>>,
+    // Per-line inlays below the line (error messages and "---" subtotals)
+    pub diagnostics: Vec<Option<Inlay>>,
     pub show_diagnostics: bool,
     // Per-line layout cache (rebuilt each frame)
     line_layouts: Vec<Option<WrappedLine>>,
@@ -1772,6 +1779,7 @@ impl Render for Editor {
                 let gutter_pad = self.font_size * GUTTER_PADDING_FACTOR;
                 let dimmed = self.theme.text_dimmed;
                 let error_color = self.theme.error;
+                let subtotal_color = self.theme.result;
                 let lh = self.line_height;
                 let visual_counts = &self.line_visual_counts;
                 let mut children: Vec<gpui::AnyElement> = Vec::new();
@@ -1831,17 +1839,17 @@ impl Render for Editor {
                             )
                             .into_any_element(),
                     );
-                    // Inlay diagnostic below error lines
-                    if self.show_diagnostics {
-                        if let Some(Some(diag)) = self.diagnostics.get(i) {
+                    // Inlay below the line: error diagnostic or "---" subtotal
+                    if let Some(Some(inlay)) = self.diagnostics.get(i) {
+                        if !inlay.is_error || self.show_diagnostics {
                             children.push(
                                 div()
                                     .w_full()
                                     .pl(gutter_w + gutter_pad)
                                     .py(px(2.))
                                     .text_size(self.font_size * 0.75)
-                                    .text_color(error_color)
-                                    .child(diag.clone())
+                                    .text_color(if inlay.is_error { error_color } else { subtotal_color })
+                                    .child(inlay.text.clone())
                                     .into_any_element(),
                             );
                         }

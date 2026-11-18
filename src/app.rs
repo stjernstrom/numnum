@@ -13,7 +13,7 @@ use numnum_core::format::{format_value_with_precision, format_value_full_precisi
 use numnum_core::types::NumberFormat;
 use numnum_core::{EvalContext, Settings, Value};
 
-use crate::editor::Editor;
+use crate::editor::{Editor, Inlay};
 use crate::rates;
 use crate::results_pane::{LineResult, ResultsPane};
 use crate::settings_pane::SettingsPane;
@@ -120,7 +120,7 @@ impl NumNumApp {
                 rates::apply_rates(&mut eval_ctx.currency_table, &rates);
             }
             let mut results = Vec::new();
-            let mut diagnostics: Vec<Option<String>> = Vec::new();
+            let mut diagnostics: Vec<Option<Inlay>> = Vec::new();
             let mut running_total: f64 = 0.0;
             let mut last_val = Value::None;
             let mut has_any_value = false;
@@ -130,6 +130,13 @@ impl NumNumApp {
                     Ok(Value::None) => {
                         results.push(LineResult::None);
                         diagnostics.push(None);
+                    }
+                    Ok(val @ Value::Subtotal(_)) => {
+                        let formatted = format_value_with_precision(
+                            &val, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format,
+                        );
+                        results.push(LineResult::None);
+                        diagnostics.push(Some(Inlay { text: format!(">>> {}", formatted), is_error: false }));
                     }
                     Ok(val) => {
                         let fmt = this.number_format;
@@ -149,7 +156,7 @@ impl NumNumApp {
                     }
                     Err(e) => {
                         results.push(LineResult::None);
-                        diagnostics.push(Some(e.to_string()));
+                        diagnostics.push(Some(Inlay { text: e.to_string(), is_error: true }));
                     }
                 }
             }
@@ -168,14 +175,17 @@ impl NumNumApp {
 
             // Update editor diagnostics and variables (for inlay rendering + autocomplete)
             let visual_counts = editor_for_eval.read(cx).line_visual_counts.clone();
-            let show_diags = this.show_diagnostics;
+            // Hidden errors are dropped here, so editor and results pane reserve the same rows
+            if !this.show_diagnostics {
+                for d in diagnostics.iter_mut() {
+                    if d.as_ref().is_some_and(|i| i.is_error) {
+                        *d = None;
+                    }
+                }
+            }
             let var_names: Vec<String> = eval_ctx.variables.keys().cloned().collect();
             editor_for_eval.update(cx, |editor, _cx| {
-                if show_diags {
-                    editor.diagnostics = diagnostics.clone();
-                } else {
-                    editor.diagnostics = vec![None; diagnostics.len()];
-                }
+                editor.diagnostics = diagnostics.clone();
                 editor.set_known_variables(var_names);
             });
 

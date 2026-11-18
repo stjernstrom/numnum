@@ -2,6 +2,7 @@ use gpui::{
     App, ClipboardItem, Context, MouseButton, MouseUpEvent, Render, Window, div, prelude::*, px,
 };
 
+use crate::editor::Inlay;
 use crate::theme::Theme;
 
 #[derive(Clone, Debug)]
@@ -33,7 +34,7 @@ impl ResultsPane {
     pub fn set_results_with_diagnostics(
         &mut self,
         results: Vec<LineResult>,
-        diagnostics: &[Option<String>],
+        diagnostics: &[Option<Inlay>],
         cx: &mut Context<Self>,
     ) {
         self.has_diagnostic = diagnostics.iter().map(|d| d.is_some()).collect();

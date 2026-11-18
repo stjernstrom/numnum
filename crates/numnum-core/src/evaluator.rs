@@ -57,6 +57,8 @@ pub struct EvalContext {
     pub number_format: NumberFormat,
     /// Rates set in the document ("1 EUR = 10.95 SEK"): (from, to) → multiplier.
     rate_overrides: HashMap<(CurrencyId, CurrencyId), f64>,
+    /// Index in `aggregation_window` where the next "---" subtotal starts.
+    subtotal_start: usize,
 }
 
 impl Default for EvalContext {
@@ -74,6 +76,7 @@ impl EvalContext {
             currency_table: CurrencyTable::new(),
             number_format: NumberFormat::US,
             rate_overrides: HashMap::new(),
+            subtotal_start: 0,
         }
     }
 
@@ -86,6 +89,7 @@ impl EvalContext {
             currency_table,
             number_format: NumberFormat::US,
             rate_overrides: HashMap::new(),
+            subtotal_start: 0,
         }
     }
 
@@ -184,7 +188,18 @@ impl EvalContext {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             self.aggregation_window.clear();
+            self.subtotal_start = 0;
             return Ok(Value::None);
+        }
+
+        // "---" (three or more dashes): subtotal since the previous subtotal or blank line
+        if trimmed.len() >= 3 && trimmed.bytes().all(|b| b == b'-') {
+            let start = self.subtotal_start.min(self.aggregation_window.len());
+            let sum: f64 = self.aggregation_window[start..].iter()
+                .filter_map(|v| v.as_number())
+                .sum();
+            self.subtotal_start = self.aggregation_window.len();
+            return Ok(Value::Subtotal(sum));
         }
 
         if let Some(result) = self.try_rate_definition(trimmed) {
@@ -2158,6 +2173,42 @@ mod unicode_tests {
         let usd = currency_amount(ctx.eval_line("1 EUR in SEK").unwrap());
         assert!((usd - 10.0).abs() > 1e-6, "variable assignment must not set a rate");
         assert!(ctx.eval_line("0 EUR = 10 SEK").is_err());
+    }
+
+    use crate::types::Value;
+
+    fn eval_lines(lines: &[&str]) -> Vec<Value> {
+        let mut ctx = EvalContext::new();
+        lines.iter().map(|l| ctx.eval_line(l).unwrap()).collect()
+    }
+
+    #[test]
+    fn test_subtotal_line() {
+        let r = eval_lines(&["10", "10", "-----", "10", "10", "sum"]);
+        assert_eq!(r[2], Value::Subtotal(20.0));
+        assert_eq!(r[5], Value::Number(40.0));
+    }
+
+    #[test]
+    fn test_subtotal_counts_from_previous_subtotal() {
+        let r = eval_lines(&["10", "10", "---", "5", "5", "---", "sum"]);
+        assert_eq!(r[2], Value::Subtotal(20.0));
+        assert_eq!(r[5], Value::Subtotal(10.0));
+        assert_eq!(r[6], Value::Number(30.0));
+    }
+
+    #[test]
+    fn test_subtotal_resets_on_blank_line() {
+        let r = eval_lines(&["10", "---", "", "3", "---"]);
+        assert_eq!(r[1], Value::Subtotal(10.0));
+        assert_eq!(r[4], Value::Subtotal(3.0));
+    }
+
+    #[test]
+    fn test_short_dash_lines_not_subtotal() {
+        let mut ctx = EvalContext::new();
+        assert!(ctx.eval_line("--").is_err());
+        assert_eq!(ctx.eval_line("10 - 4").unwrap(), Value::Number(6.0));
     }
 
     #[test]
