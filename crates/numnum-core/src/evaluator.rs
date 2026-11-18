@@ -191,6 +191,8 @@ impl EvalContext {
     pub fn eval_line(&mut self, line: &str) -> Result<Value, EvalError> {
         self.last_line_used_sum = false;
         let trimmed = line.trim();
+        // A lone "=" is shorthand for "sum"
+        let trimmed = if trimmed == "=" { "sum" } else { trimmed };
         if trimmed.is_empty() {
             self.aggregation_window.clear();
             self.subtotal_start = 0;
@@ -2253,6 +2255,16 @@ mod unicode_tests {
         assert!(ctx.last_line_used_sum);
         ctx.eval_line("10").unwrap();
         assert!(!ctx.last_line_used_sum);
+    }
+
+    #[test]
+    fn test_lone_equals_is_sum() {
+        let mut ctx = EvalContext::new();
+        ctx.eval_line("10").unwrap();
+        ctx.eval_line("10").unwrap();
+        assert_eq!(ctx.eval_line(" = ").unwrap(), Value::Number(20.0));
+        assert!(ctx.last_line_used_sum);
+        assert_eq!(ctx.eval_line("x = 5").unwrap(), Value::Number(5.0));
     }
 
     #[test]
