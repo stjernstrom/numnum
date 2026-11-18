@@ -995,6 +995,16 @@ impl Editor {
             }];
         }
 
+        // "---" subtotal line: comment colour
+        let trimmed = line.trim();
+        if trimmed.len() >= 3 && trimmed.bytes().all(|b| b == b'-') {
+            return vec![TextRun {
+                len: line.len(),
+                color: self.theme.syn_comment,
+                ..style.clone()
+            }];
+        }
+
         let mut lexer = Lexer::new(line, &self.unit_table, &self.currency_table)
             .with_number_format(self.number_format);
         let tokens = lexer.tokenize();
