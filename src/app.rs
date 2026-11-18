@@ -406,6 +406,7 @@ impl NumNumApp {
         let start = range.start.min(end);
         let text = format_with_results(&lines[start..end], results.get(start..).unwrap_or(&[]));
         cx.write_to_clipboard(ClipboardItem::new_string(text));
+        self.status_bar.update(cx, |bar, cx| bar.flash("Copied", cx));
     }
 
     fn delete_session(&mut self, path: PathBuf, cx: &mut Context<Self>) {

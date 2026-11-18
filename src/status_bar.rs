@@ -8,6 +8,9 @@ pub struct StatusBar {
     line: usize,
     col: usize,
     running_total: String,
+    /// Short message shown instead of the total for a moment (e.g. "Copied")
+    flash: Option<String>,
+    flash_epoch: usize,
     pub theme: Theme,
     on_settings_click: Option<Arc<dyn Fn(&mut Window, &mut App)>>,
     on_copy_click: Option<Arc<dyn Fn(&mut Window, &mut App)>>,
@@ -23,6 +26,8 @@ impl StatusBar {
             line: 1,
             col: 1,
             running_total: String::new(),
+            flash: None,
+            flash_epoch: 0,
             theme,
             on_settings_click,
             on_copy_click,
@@ -32,6 +37,25 @@ impl StatusBar {
     pub fn set_cursor(&mut self, line: usize, col: usize, cx: &mut Context<Self>) {
         self.line = line + 1; // 1-indexed display
         self.col = col + 1;
+        cx.notify();
+    }
+
+    /// Show `message` in the centre of the status bar for 1.5 seconds.
+    pub fn flash(&mut self, message: &str, cx: &mut Context<Self>) {
+        self.flash = Some(message.to_string());
+        self.flash_epoch += 1;
+        let epoch = self.flash_epoch;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(1500)).await;
+            if let Some(this) = this.upgrade() {
+                this.update(cx, |bar, cx| {
+                    if bar.flash_epoch == epoch {
+                        bar.flash = None;
+                        cx.notify();
+                    }
+                });
+            }
+        }).detach();
         cx.notify();
     }
 
@@ -116,7 +140,9 @@ impl Render for StatusBar {
                     .text_color(self.theme.text_muted)
                     .flex()
                     .justify_center()
-                    .child(if self.running_total.is_empty() {
+                    .child(if let Some(message) = &self.flash {
+                        message.clone()
+                    } else if self.running_total.is_empty() {
                         String::new()
                     } else {
                         format!("Total: {}", self.running_total)
