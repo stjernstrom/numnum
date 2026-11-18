@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use gpui::{
-    App, ClickEvent, Context, CursorStyle, Entity, Focusable, MouseButton, MouseDownEvent,
+    App, ClickEvent, ClipboardItem, Context, CursorStyle, Entity, Focusable, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent,
     SharedString, Window, actions, div, point, prelude::*, px, svg,
 };
@@ -71,12 +71,16 @@ impl NumNumApp {
 
         // Create status bar with settings callback
         let settings_pane_for_bar = settings_pane.clone();
+        let app_for_copy = cx.entity().downgrade();
         let status_bar = cx.new(|_| StatusBar::new(
             theme.clone(),
             Some(Arc::new(move |_window: &mut Window, cx: &mut App| {
                 settings_pane_for_bar.update(cx, |pane, cx| {
                     pane.toggle(cx);
                 });
+            })),
+            Some(Arc::new(move |_window: &mut Window, cx: &mut App| {
+                let _ = app_for_copy.update(cx, |this, cx| this.copy_with_results(cx));
             })),
         ));
 
@@ -389,6 +393,19 @@ impl NumNumApp {
             editor.set_content(String::new(), cx);
         });
         cx.notify();
+    }
+
+    /// Copy the document (or the selected lines) with results as aligned plain text.
+    fn copy_with_results(&mut self, cx: &mut Context<Self>) {
+        let editor = self.editor.read(cx);
+        let content = editor.content().to_string();
+        let lines: Vec<&str> = content.split('\n').collect();
+        let range = editor.selected_lines().unwrap_or(0..lines.len());
+        let results = self.results_pane.read(cx).display_texts();
+        let end = range.end.min(lines.len());
+        let start = range.start.min(end);
+        let text = format_with_results(&lines[start..end], results.get(start..).unwrap_or(&[]));
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 
     fn delete_session(&mut self, path: PathBuf, cx: &mut Context<Self>) {
@@ -855,5 +872,54 @@ impl Render for NumNumApp {
                         }))
                 )
             })
+    }
+}
+
+/// Lines with their results in a right-aligned column, as plain text.
+/// Lines without a result are kept as they are.
+fn format_with_results(lines: &[&str], results: &[String]) -> String {
+    let len = |s: &str| s.chars().count();
+    let pairs: Vec<(&str, &str)> = lines.iter().enumerate()
+        .map(|(i, l)| (*l, results.get(i).map(|r| r.as_str()).unwrap_or("")))
+        .collect();
+    let max_line = pairs.iter().filter(|(_, r)| !r.is_empty()).map(|(l, _)| len(l)).max().unwrap_or(0);
+    let max_result = pairs.iter().map(|(_, r)| len(r)).max().unwrap_or(0);
+    let width = max_line + 3 + max_result;
+    pairs.iter()
+        .map(|(l, r)| {
+            if r.is_empty() {
+                l.to_string()
+            } else {
+                format!("{}{}{}", l, " ".repeat(width - len(l) - len(r)), r)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_with_results;
+
+    #[test]
+    fn test_format_with_results() {
+        let lines = ["10", "rent = 2000", "", "# Header", "---", "="];
+        let results: Vec<String> = ["10", "2 000", "", "", "subtotal: 2 010", "= 2 010"]
+            .iter().map(|s| s.to_string()).collect();
+        let expected = "\
+10                         10
+rent = 2000             2 000
+
+# Header
+---           subtotal: 2 010
+=                     = 2 010";
+        assert_eq!(format_with_results(&lines, &results), expected);
+    }
+
+    #[test]
+    fn test_format_with_results_unicode_width() {
+        let lines = ["50 €"];
+        let results = vec!["€50".to_string()];
+        assert_eq!(format_with_results(&lines, &results), "50 €   €50");
     }
 }

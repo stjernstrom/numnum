@@ -513,6 +513,18 @@ impl Editor {
         &self.content
     }
 
+    /// Lines touched by the selection, or None when nothing is selected. A selection
+    /// ending at the start of a line does not include that line.
+    pub fn selected_lines(&self) -> Option<Range<usize>> {
+        if self.selected_range.is_empty() {
+            return None;
+        }
+        let (first, _) = self.line_col_for_offset(self.selected_range.start);
+        let (last, col) = self.line_col_for_offset(self.selected_range.end);
+        let end = if col == 0 && last > first { last } else { last + 1 };
+        Some(first..end)
+    }
+
     pub fn set_content(&mut self, content: String, cx: &mut Context<Self>) {
         self.content = content;
         self.selected_range = self.content.len()..self.content.len();

@@ -12,6 +12,8 @@ const SETTINGS_SVG: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icons/settings.svg"));
 const BURGER_SVG: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icons/burger.svg"));
+const COPY_SVG: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icons/copy.svg"));
 
 /// Asset source for icons rendered inside the app. Resolves the relative paths
 /// passed to `svg().path(...)`; registered via `Application::with_assets`.
@@ -22,6 +24,7 @@ impl AssetSource for Assets {
         match path {
             "icons/settings.svg" => Ok(Some(Cow::Borrowed(SETTINGS_SVG))),
             "icons/burger.svg" => Ok(Some(Cow::Borrowed(BURGER_SVG))),
+            "icons/copy.svg" => Ok(Some(Cow::Borrowed(COPY_SVG))),
             _ => Ok(None),
         }
     }
@@ -30,6 +33,7 @@ impl AssetSource for Assets {
         Ok(vec![
             SharedString::from("icons/settings.svg"),
             SharedString::from("icons/burger.svg"),
+            SharedString::from("icons/copy.svg"),
         ])
     }
 }

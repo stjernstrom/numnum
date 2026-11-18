@@ -10,12 +10,14 @@ pub struct StatusBar {
     running_total: String,
     pub theme: Theme,
     on_settings_click: Option<Arc<dyn Fn(&mut Window, &mut App)>>,
+    on_copy_click: Option<Arc<dyn Fn(&mut Window, &mut App)>>,
 }
 
 impl StatusBar {
     pub fn new(
         theme: Theme,
         on_settings_click: Option<Arc<dyn Fn(&mut Window, &mut App)>>,
+        on_copy_click: Option<Arc<dyn Fn(&mut Window, &mut App)>>,
     ) -> Self {
         StatusBar {
             line: 1,
@@ -23,6 +25,7 @@ impl StatusBar {
             running_total: String::new(),
             theme,
             on_settings_click,
+            on_copy_click,
         }
     }
 
@@ -41,6 +44,7 @@ impl StatusBar {
 impl Render for StatusBar {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let on_settings = self.on_settings_click.clone();
+        let on_copy = self.on_copy_click.clone();
         let icon_color = self.theme.text_dimmed;
 
         div()
@@ -71,6 +75,32 @@ impl Render for StatusBar {
                     )
                     .hover(|s| s.opacity(0.7))
                     .when_some(on_settings, |el, cb| {
+                        el.on_mouse_up(
+                            MouseButton::Left,
+                            move |_: &MouseUpEvent, window: &mut Window, cx: &mut App| {
+                                cb(window, cx);
+                            },
+                        )
+                    }),
+            )
+            // Copy lines with results (all, or the selection)
+            .child(
+                div()
+                    .id("copy-btn")
+                    .flex_shrink_0()
+                    .cursor_pointer()
+                    .flex()
+                    .items_center()
+                    .h_full()
+                    .px(px(4.))
+                    .child(
+                        svg()
+                            .path("icons/copy.svg")
+                            .size(px(14.))
+                            .text_color(icon_color)
+                    )
+                    .hover(|s| s.opacity(0.7))
+                    .when_some(on_copy, |el, cb| {
                         el.on_mouse_up(
                             MouseButton::Left,
                             move |_: &MouseUpEvent, window: &mut Window, cx: &mut App| {

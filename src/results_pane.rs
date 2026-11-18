@@ -34,6 +34,15 @@ impl ResultsPane {
         }
     }
 
+    /// Result text per line as shown in the column ("" for lines without a result).
+    pub fn display_texts(&self) -> Vec<String> {
+        self.results.iter().map(|r| match r {
+            LineResult::None => String::new(),
+            LineResult::Value(display, _) | LineResult::Subtotal(display) => display.clone(),
+            LineResult::Sum(display, _) => format!("= {display}"),
+        }).collect()
+    }
+
     pub fn set_results_with_diagnostics(
         &mut self,
         results: Vec<LineResult>,
