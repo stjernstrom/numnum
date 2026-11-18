@@ -55,6 +55,8 @@ pub struct EvalContext {
     pub unit_table: UnitTable,
     pub currency_table: CurrencyTable,
     pub number_format: NumberFormat,
+    /// Rates set in the document ("1 EUR = 10.95 SEK"): (from, to) → multiplier.
+    rate_overrides: HashMap<(CurrencyId, CurrencyId), f64>,
 }
 
 impl Default for EvalContext {
@@ -71,6 +73,7 @@ impl EvalContext {
             unit_table: UnitTable::new(),
             currency_table: CurrencyTable::new(),
             number_format: NumberFormat::US,
+            rate_overrides: HashMap::new(),
         }
     }
 
@@ -82,11 +85,66 @@ impl EvalContext {
             unit_table,
             currency_table,
             number_format: NumberFormat::US,
+            rate_overrides: HashMap::new(),
         }
     }
 
     pub fn set_number_format(&mut self, fmt: NumberFormat) {
         self.number_format = fmt;
+    }
+
+    /// Convert between currencies, preferring a rate set in the document.
+    fn convert_currency(&self, value: f64, from: CurrencyId, to: CurrencyId) -> Result<f64, EvalError> {
+        if let Some(rate) = self.rate_overrides.get(&(from, to)) {
+            return Ok(value * rate);
+        }
+        self.currency_table.convert(value, from, to)
+            .ok_or_else(|| EvalError::InvalidCurrency("Invalid currency id".to_string()))
+    }
+
+    /// Handle a rate line like "1 EUR = 10.95 SEK". Returns None if the line is not one.
+    /// The left side must be a plain amount and currency, so "x = 10 SEK" stays an assignment.
+    fn try_rate_definition(&mut self, line: &str) -> Option<Result<Value, EvalError>> {
+        let (lhs, rhs) = line.split_once('=')?;
+        if rhs.starts_with('=') || lhs.ends_with(['<', '>', '!', '+', '-', '*', '/']) {
+            return None;
+        }
+        let lhs_tokens = Lexer::new(lhs.trim(), &self.unit_table, &self.currency_table)
+            .with_number_format(self.number_format)
+            .tokenize();
+        let is_amount_and_currency = lhs_tokens.len() == 3
+            && matches!(lhs_tokens[2].kind, TokenKind::Eof)
+            && matches!(
+                (&lhs_tokens[0].kind, &lhs_tokens[1].kind),
+                (TokenKind::Number(_), TokenKind::Currency(_) | TokenKind::CurrencySymbol(_))
+                    | (TokenKind::CurrencySymbol(_), TokenKind::Number(_))
+            );
+        if !is_amount_and_currency {
+            return None;
+        }
+        let (Ok(Value::WithCurrency(from_amount, from)), Ok(Value::WithCurrency(to_amount, to))) =
+            (self.eval_fragment(lhs), self.eval_fragment(rhs))
+        else {
+            return None;
+        };
+        if from == to {
+            return None;
+        }
+        if from_amount == 0.0 || to_amount == 0.0 {
+            return Some(Err(EvalError::DivisionByZero));
+        }
+        let rate = to_amount / from_amount;
+        self.rate_overrides.insert((from, to), rate);
+        self.rate_overrides.insert((to, from), 1.0 / rate);
+        Some(Ok(Value::WithCurrency(to_amount, to)))
+    }
+
+    fn eval_fragment(&mut self, text: &str) -> Result<Value, EvalError> {
+        let tokens = Lexer::new(text.trim(), &self.unit_table, &self.currency_table)
+            .with_number_format(self.number_format)
+            .tokenize();
+        let expr = Parser::new(tokens).parse().map_err(EvalError::ParseError)?;
+        self.eval_expr(&expr)
     }
 
     /// Replace Unit/Currency tokens with Ident tokens when the unit/currency
@@ -127,6 +185,10 @@ impl EvalContext {
         if trimmed.is_empty() {
             self.aggregation_window.clear();
             return Ok(Value::None);
+        }
+
+        if let Some(result) = self.try_rate_definition(trimmed) {
+            return result;
         }
 
         let mut lexer = Lexer::new(trimmed, &self.unit_table, &self.currency_table)
@@ -334,8 +396,7 @@ impl EvalContext {
                     ConversionTarget::Currency(to_currency) => {
                         match v {
                             Value::WithCurrency(n, from_currency) => {
-                                let converted = self.currency_table.convert(n, from_currency, *to_currency)
-                                    .ok_or_else(|| EvalError::InvalidCurrency("Invalid currency id".to_string()))?;
+                                let converted = self.convert_currency(n, from_currency, *to_currency)?;
                                 Ok(Value::WithCurrency(converted, *to_currency))
                             }
                             Value::Number(n) => Ok(Value::WithCurrency(n, *to_currency)),
@@ -570,8 +631,7 @@ impl EvalContext {
         // --- Different currencies: convert RHS to LHS currency before arithmetic ---
         if let (Value::WithCurrency(ln, lc), Value::WithCurrency(rn, rc)) = (&lhs, &rhs) {
             if lc != rc {
-                let rn_converted = self.currency_table.convert(*rn, *rc, *lc)
-                    .ok_or_else(|| EvalError::InvalidCurrency("Invalid currency id".to_string()))?;
+                let rn_converted = self.convert_currency(*rn, *rc, *lc)?;
                 let result = match op {
                     BinOp::Add => *ln + rn_converted,
                     BinOp::Sub => *ln - rn_converted,
@@ -2060,6 +2120,44 @@ mod unicode_tests {
         assert_eq!(eval_display("1 Mbps"), "1 Mb/s");
         assert_eq!(eval_display("1 mph"), "1 mi./h");
         assert_eq!(eval_display("1 MPH"), "1 mi./h");
+    }
+
+    fn currency_amount(v: crate::types::Value) -> f64 {
+        match v {
+            crate::types::Value::WithCurrency(n, _) => n,
+            other => panic!("expected currency, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_currency_rate_override() {
+        let mut ctx = EvalContext::new();
+        let usd_before = currency_amount(ctx.eval_line("10 EUR in USD").unwrap());
+        assert!((currency_amount(ctx.eval_line("1 EUR = 10.95 SEK").unwrap()) - 10.95).abs() < 1e-9);
+        assert!((currency_amount(ctx.eval_line("10 EUR to SEK").unwrap()) - 109.5).abs() < 1e-9);
+        assert!((currency_amount(ctx.eval_line("109.5 SEK in EUR").unwrap()) - 10.0).abs() < 1e-9);
+        assert!((currency_amount(ctx.eval_line("10 SEK + 1 EUR").unwrap()) - 20.95).abs() < 1e-9);
+        // Other pairs keep the normal rate
+        assert!((currency_amount(ctx.eval_line("10 EUR in USD").unwrap()) - usd_before).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_currency_rate_override_scaled_and_redefined() {
+        let mut ctx = EvalContext::new();
+        ctx.eval_line("100 SEK = 9 EUR").unwrap();
+        assert!((currency_amount(ctx.eval_line("1 EUR in SEK").unwrap()) - 100.0 / 9.0).abs() < 1e-9);
+        ctx.eval_line("1 EUR = 11 SEK").unwrap();
+        assert!((currency_amount(ctx.eval_line("1 EUR in SEK").unwrap()) - 11.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_variable_assignment_not_rate() {
+        let mut ctx = EvalContext::new();
+        ctx.eval_line("x = 1 EUR").unwrap();
+        ctx.eval_line("x = 10 SEK").unwrap();
+        let usd = currency_amount(ctx.eval_line("1 EUR in SEK").unwrap());
+        assert!((usd - 10.0).abs() > 1e-6, "variable assignment must not set a rate");
+        assert!(ctx.eval_line("0 EUR = 10 SEK").is_err());
     }
 
     #[test]
