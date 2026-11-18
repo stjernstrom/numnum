@@ -45,6 +45,8 @@ pub struct NumNumApp {
     titlebar_should_move: bool,
     number_format: NumberFormat,
     session_path: Option<PathBuf>,
+    /// Held while `session_path` is open here, so other instances keep off it
+    doc_lock: Option<crate::session::DocLock>,
     session_list: Vec<(PathBuf, crate::session::Session)>,
     burger_menu_open: bool,
 }
@@ -55,7 +57,7 @@ impl NumNumApp {
         theme: Theme,
         settings: Settings,
         live_rates: Arc<Mutex<HashMap<String, f64>>>,
-        initial_session: Option<(PathBuf, String)>,
+        initial_session: Option<(PathBuf, String, crate::session::DocLock)>,
     ) -> Self {
         let font_family = settings.editor.font_family.clone();
         let font_size = settings.editor.font_size;
@@ -94,7 +96,7 @@ impl NumNumApp {
         let unit_table_for_eval = unit_table.clone();
         let currency_table_for_eval = currency_table.clone();
 
-        let initial_content = initial_session.as_ref().map(|(_, content)| content.clone());
+        let initial_content = initial_session.as_ref().map(|(_, content, _)| content.clone());
 
         let editor = cx.new(|cx| {
             let mut ed = Editor::new(cx, theme_clone, font_family, font_size, None,
@@ -322,7 +324,8 @@ impl NumNumApp {
             title_bar: settings.window.title_bar.clone(),
             titlebar_should_move: false,
             number_format: NumberFormat::from_str(&settings.editor.number_format),
-            session_path: initial_session.map(|(path, _)| path),
+            session_path: initial_session.as_ref().map(|(path, _, _)| path.clone()),
+            doc_lock: initial_session.map(|(_, _, lock)| lock),
             session_list: Vec::new(),
             burger_menu_open: false,
         }
@@ -397,9 +400,15 @@ impl NumNumApp {
 
     fn switch_session(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         self.burger_menu_open = false;
+        let Some(lock) = crate::session::try_lock(&path) else {
+            self.status_bar.update(cx, |bar, cx| bar.flash("Open in another window", cx));
+            cx.notify();
+            return;
+        };
         self.save_current_session(cx);
         if let Some(session) = crate::session::load_session(&path) {
             self.session_path = Some(path);
+            self.doc_lock = Some(lock);
             self.editor.update(cx, |editor, cx| {
                 editor.set_content(session.content, cx);
             });
@@ -411,6 +420,7 @@ impl NumNumApp {
         self.burger_menu_open = false;
         self.save_current_session(cx);
         self.session_path = None;
+        self.doc_lock = None;
         self.editor.update(cx, |editor, cx| {
             editor.set_content(String::new(), cx);
         });
@@ -435,6 +445,10 @@ impl NumNumApp {
         if self.session_path.as_ref() == Some(&path) {
             return;
         }
+        if crate::session::try_lock(&path).is_none() {
+            self.status_bar.update(cx, |bar, cx| bar.flash("Open in another window", cx));
+            return;
+        }
         let _ = std::fs::remove_file(&path);
         self.session_list.retain(|(p, _)| p != &path);
         cx.notify();
@@ -449,6 +463,7 @@ impl NumNumApp {
             if let Some(path) = self.session_path.take() {
                 let _ = std::fs::remove_file(&path);
             }
+            self.doc_lock = None;
             return;
         }
 
@@ -458,6 +473,7 @@ impl NumNumApp {
             Some(path) => path.clone(),
             None => {
                 let path = crate::session::new_session_path();
+                self.doc_lock = crate::session::try_lock(&path);
                 self.session_path = Some(path.clone());
                 path
             }

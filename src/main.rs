@@ -121,10 +121,13 @@ fn main() {
 
         // Load most recent session, if any. No empty sessions are kept on disk,
         // so if none exist we start with no session file and create one lazily
-        // on first non-empty content change.
+        // on first non-empty content change. If another instance has it open,
+        // start with an empty scratchpad instead.
         let sessions = session::list_sessions();
         let initial_session = sessions.into_iter().next()
-            .map(|(path, session)| (path, session.content));
+            .and_then(|(path, session)| {
+                session::try_lock(&path).map(|lock| (path, session.content, lock))
+            });
 
         // Resolve auto mode inside the window callback where we have access to window appearance
         let appearance_mode = settings.appearance.mode.clone();

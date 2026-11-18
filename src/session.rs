@@ -127,6 +127,35 @@ pub fn format_timestamp(secs: u64) -> String {
     }
 }
 
+/// Exclusive hold on a document, so two NumNum windows never autosave over
+/// each other. Released when dropped or when the process exits.
+pub struct DocLock {
+    _file: fs::File,
+}
+
+/// Lock `doc` for this process. Returns None if another instance holds it.
+pub fn try_lock(doc: &Path) -> Option<DocLock> {
+    let dir = data_dir().join("locks");
+    let _ = fs::create_dir_all(&dir);
+    try_lock_in_dir(doc, &dir)
+}
+
+fn try_lock_in_dir(doc: &Path, dir: &Path) -> Option<DocLock> {
+    // FNV-1a over the path: stable across builds, unlike DefaultHasher.
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in doc.to_string_lossy().bytes() {
+        hash = (hash ^ b as u64).wrapping_mul(0x100000001b3);
+    }
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(format!("{:016x}.lock", hash)))
+        .ok()?;
+    file.try_lock().ok()?;
+    Some(DocLock { _file: file })
+}
+
 // ── Internal helpers for testability ───────────────────────────────────────
 
 fn new_session_path_in_dir(dir: &Path) -> PathBuf {
@@ -679,6 +708,18 @@ mod tests {
         assert!(list.iter().any(|(p, _)| p == &pa));
         assert!(!list.iter().any(|(p, _)| p == &pc));
 
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn test_lock_is_exclusive_until_dropped() {
+        let dir = test_dir();
+        let doc = dir.join("doc.json");
+        let first = try_lock_in_dir(&doc, &dir).expect("first lock");
+        assert!(try_lock_in_dir(&doc, &dir).is_none(), "second lock must fail");
+        assert!(try_lock_in_dir(&dir.join("other.json"), &dir).is_some(), "other docs are free");
+        drop(first);
+        assert!(try_lock_in_dir(&doc, &dir).is_some(), "lock is released on drop");
         cleanup(&dir);
     }
 }
