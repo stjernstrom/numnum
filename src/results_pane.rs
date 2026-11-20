@@ -120,7 +120,7 @@ impl Render for ResultsPane {
                             })
                             // Sum: band and a rule across the whole row, matching the editor side
                             .when(is_sum, |el| {
-                                el.bg(theme.result.opacity(0.08)).child(
+                                el.bg(theme.result.opacity(0.05)).child(
                                     div().absolute().top_0().left_0().right_0().h(px(1.))
                                         .bg(theme.text_dimmed.opacity(0.5)),
                                 )

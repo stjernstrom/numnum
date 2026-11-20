@@ -1970,7 +1970,7 @@ impl Render for Editor {
                     // the right across the 14px divider gap (see app.rs) to the results column
                     let pad = self.font_size * 0.75;
                     let pad_right = pad + px(14.);
-                    let sum_band = self.theme.result.opacity(0.08);
+                    let sum_band = self.theme.result.opacity(0.05);
                     let sum_rule = self.theme.text_dimmed.opacity(0.5);
                     children.push(
                         div()
