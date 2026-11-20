@@ -897,7 +897,7 @@ pub enum Value {
     WithCurrency(f64, CurrencyId),
     Percent(f64), // stored as fraction: 50% = 0.5
     /// Partial sum from a "---" line. Not part of later sums and not usable in calculations.
-    Subtotal(f64),
+    Subtotal(Box<Value>),
     None,
 }
 
@@ -921,7 +921,7 @@ impl fmt::Display for Value {
             Value::WithUnit(n, _) | Value::WithCompoundUnit(n, _) => write!(f, "{}", crate::format::format_number(*n, 2, NumberFormat::US)),
             Value::WithCurrency(n, _) => write!(f, "{}", crate::format::format_number(*n, 2, NumberFormat::US)),
             Value::Percent(n) => write!(f, "{} %", crate::format::format_number(*n * 100.0, 2, NumberFormat::US)),
-            Value::Subtotal(n) => write!(f, "{}", crate::format::format_number(*n, 2, NumberFormat::US)),
+            Value::Subtotal(v) => write!(f, "{}", v),
             Value::None => Ok(()),
         }
     }

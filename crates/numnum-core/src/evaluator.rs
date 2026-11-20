@@ -212,11 +212,9 @@ impl EvalContext {
         // "---" (three or more dashes): subtotal since the previous subtotal or blank line
         if trimmed.len() >= 3 && trimmed.bytes().all(|b| b == b'-') {
             let start = self.subtotal_start.min(self.aggregation_window.len());
-            let sum: f64 = self.aggregation_window[start..].iter()
-                .filter_map(|v| v.as_number())
-                .sum();
+            let sum = self.sum_values(&self.aggregation_window[start..])?;
             self.subtotal_start = self.aggregation_window.len();
-            return Ok(Value::Subtotal(sum));
+            return Ok(Value::Subtotal(Box::new(sum)));
         }
 
         if let Some(result) = self.try_rate_definition(trimmed) {
@@ -487,10 +485,7 @@ impl EvalContext {
                 match kind {
                     AggKind::Sum => {
                         self.last_line_used_sum = true;
-                        let sum: f64 = self.aggregation_window.iter()
-                            .filter_map(|v| v.as_number())
-                            .sum();
-                        Ok(Value::Number(sum))
+                        self.sum_values(&self.aggregation_window)
                     }
                     AggKind::Average => {
                         let nums: Vec<f64> = self.aggregation_window.iter()
@@ -2223,23 +2218,33 @@ mod unicode_tests {
     #[test]
     fn test_subtotal_line() {
         let r = eval_lines(&["10", "10", "-----", "10", "10", "sum"]);
-        assert_eq!(r[2], Value::Subtotal(20.0));
+        assert_eq!(r[2], Value::Subtotal(Box::new(Value::Number(20.0))));
         assert_eq!(r[5], Value::Number(40.0));
     }
 
     #[test]
     fn test_subtotal_counts_from_previous_subtotal() {
         let r = eval_lines(&["10", "10", "---", "5", "5", "---", "sum"]);
-        assert_eq!(r[2], Value::Subtotal(20.0));
-        assert_eq!(r[5], Value::Subtotal(10.0));
+        assert_eq!(r[2], Value::Subtotal(Box::new(Value::Number(20.0))));
+        assert_eq!(r[5], Value::Subtotal(Box::new(Value::Number(10.0))));
         assert_eq!(r[6], Value::Number(30.0));
+    }
+
+    #[test]
+    fn test_sum_and_subtotal_convert_currencies() {
+        let r = eval_lines(&["1 EUR = 10 SEK", "100 SEK", "10 EUR", "---", "5 EUR", "sum"]);
+        match &r[3] {
+            Value::Subtotal(v) => assert!(matches!(**v, Value::WithCurrency(n, _) if (n - 20.0).abs() < 1e-9), "got {v:?}"),
+            other => panic!("expected subtotal, got {other:?}"),
+        }
+        assert!(matches!(r[5], Value::WithCurrency(n, _) if (n - 25.0).abs() < 1e-9), "got {:?}", r[5]);
     }
 
     #[test]
     fn test_subtotal_resets_on_blank_line() {
         let r = eval_lines(&["10", "---", "", "3", "---"]);
-        assert_eq!(r[1], Value::Subtotal(10.0));
-        assert_eq!(r[4], Value::Subtotal(3.0));
+        assert_eq!(r[1], Value::Subtotal(Box::new(Value::Number(10.0))));
+        assert_eq!(r[4], Value::Subtotal(Box::new(Value::Number(3.0))));
     }
 
     #[test]
