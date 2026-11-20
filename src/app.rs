@@ -137,14 +137,18 @@ impl NumNumApp {
             let mut diagnostics: Vec<Option<String>> = Vec::new();
             // Per-line values for the selection sum (sum lines left out, like the total)
             let mut line_values: Vec<Option<Value>> = Vec::new();
-            // Unit or currency of the current block (lines up to a blank line), from any
-            // value or sum line in it. Plain numbers in the block count in it for the totals.
+            // Unit or currency of the current block (lines up to a blank line). Plain numbers
+            // in the block count in it for the totals. Value lines decide; a sum or subtotal
+            // line ("sum in sek") only when no value line has a unit, since "sum in usd"
+            // converts the result and says nothing about the lines above.
             let mut block_start = 0;
             let mut block_unit: Option<Value> = None;
+            let mut block_sum_unit: Option<Value> = None;
 
             for line_text in content.split('\n') {
                 if line_text.trim().is_empty() {
-                    adopt_unit(&mut line_values[block_start..], block_unit.take().as_ref());
+                    let unit = block_unit.take().or(block_sum_unit.take());
+                    adopt_unit(&mut line_values[block_start..], unit.as_ref());
                     block_start = line_values.len();
                 }
                 let value_count = line_values.len();
@@ -155,7 +159,7 @@ impl NumNumApp {
                     }
                     Ok(val @ Value::Subtotal(_)) => {
                         if let Value::Subtotal(inner) = &val && has_unit(inner) {
-                            block_unit = Some((**inner).clone());
+                            block_sum_unit = Some((**inner).clone());
                         }
                         let formatted = format_value_with_precision(
                             &val, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format,
@@ -165,7 +169,11 @@ impl NumNumApp {
                     }
                     Ok(val) => {
                         if has_unit(&val) {
-                            block_unit = Some(val.clone());
+                            if eval_ctx.last_line_used_sum {
+                                block_sum_unit = Some(val.clone());
+                            } else {
+                                block_unit = Some(val.clone());
+                            }
                         }
                         let fmt = this.number_format;
                         let formatted = format_value_with_precision(
@@ -192,7 +200,7 @@ impl NumNumApp {
                     line_values.push(None);
                 }
             }
-            adopt_unit(&mut line_values[block_start..], block_unit.as_ref());
+            adopt_unit(&mut line_values[block_start..], block_unit.or(block_sum_unit).as_ref());
 
             // Add the values like `a + b`, so currencies and units are converted
             // to the last value's. Empty when nothing to add.
