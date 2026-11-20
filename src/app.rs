@@ -169,7 +169,10 @@ impl NumNumApp {
                         let formatted = format_value_with_precision(
                             &val, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format,
                         );
-                        results.push(LineResult::Subtotal(format!("subtotal: {}", formatted)));
+                        let full_precision = format_value_full_precision(
+                            &val, &eval_ctx.unit_table, &eval_ctx.currency_table, this.number_format,
+                        );
+                        results.push(LineResult::Subtotal(formatted, full_precision));
                         diagnostics.push(None);
                     }
                     Ok(val) => {

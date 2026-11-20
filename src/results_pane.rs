@@ -9,8 +9,8 @@ pub enum LineResult {
     None,
     /// display_text, full_precision_copy_text
     Value(String, String),
-    /// "---" subtotal: dimmed, rule above, not clickable
-    Subtotal(String),
+    /// "---" subtotal: dimmed, short rule above, shown as "subtotal: x"
+    Subtotal(String, String),
     /// Line using `sum`: like Value, shown as "= x" with a rule above
     Sum(String, String),
 }
@@ -38,7 +38,8 @@ impl ResultsPane {
     pub fn display_texts(&self) -> Vec<String> {
         self.results.iter().map(|r| match r {
             LineResult::None => String::new(),
-            LineResult::Value(display, _) | LineResult::Subtotal(display) => display.clone(),
+            LineResult::Value(display, _) => display.clone(),
+            LineResult::Subtotal(display, _) => format!("subtotal: {display}"),
             LineResult::Sum(display, _) => format!("= {display}"),
         }).collect()
     }
@@ -75,24 +76,24 @@ impl Render for ResultsPane {
                     let (text, color) = match &result {
                         LineResult::None => (String::new(), theme.text_dimmed),
                         LineResult::Value(display, _) => (display.clone(), theme.result),
-                        LineResult::Subtotal(display) => (display.clone(), theme.result.opacity(0.6)),
+                        LineResult::Subtotal(display, _) => (format!("subtotal: {display}"), theme.result.opacity(0.6)),
                         LineResult::Sum(display, _) => (format!("= {display}"), theme.result),
                     };
-                    let is_subtotal = matches!(result, LineResult::Subtotal(_));
+                    let is_subtotal = matches!(result, LineResult::Subtotal(..));
                     let is_sum = matches!(result, LineResult::Sum(..));
 
                     let text_for_copy = if self.copy_full_precision {
                         match &result {
-                            LineResult::Value(_, full) | LineResult::Sum(_, full) => full.clone(),
+                            LineResult::Value(_, full) | LineResult::Sum(_, full) | LineResult::Subtotal(_, full) => full.clone(),
                             _ => text.clone(),
                         }
                     } else {
                         match &result {
-                            LineResult::Sum(display, _) => display.clone(), // without the "= " prefix
+                            // Without the "= " and "subtotal: " labels
+                            LineResult::Sum(display, _) | LineResult::Subtotal(display, _) => display.clone(),
                             _ => text.clone(),
                         }
                     };
-                    let text_for_copy = if is_subtotal { String::new() } else { text_for_copy };
                     let visual_count = self.line_visual_counts.get(i).copied().unwrap_or(1);
                     let row_height = line_height * visual_count as f32;
                     children.push(
