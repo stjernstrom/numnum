@@ -198,6 +198,7 @@ fn try_lock_in_dir(doc: &Path, dir: &Path) -> Option<DocLock> {
 
 // ── Internal helpers for testability ───────────────────────────────────────
 
+#[cfg(test)]
 fn new_session_path_in_dir(dir: &Path) -> PathBuf {
     let timestamp = now_secs();
     let base = format!("numnum_session_{}", timestamp);
