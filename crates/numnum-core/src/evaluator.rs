@@ -61,6 +61,8 @@ pub struct EvalContext {
     subtotal_start: usize,
     /// True when the last evaluated line used `sum`/`total` (the UI draws a rule above it).
     pub last_line_used_sum: bool,
+    /// Results of `sum` over a block, for a `sum` with no block above it (a grand total).
+    block_sums: Vec<Value>,
 }
 
 impl Default for EvalContext {
@@ -80,6 +82,7 @@ impl EvalContext {
             rate_overrides: HashMap::new(),
             subtotal_start: 0,
             last_line_used_sum: false,
+            block_sums: Vec::new(),
         }
     }
 
@@ -94,6 +97,7 @@ impl EvalContext {
             rate_overrides: HashMap::new(),
             subtotal_start: 0,
             last_line_used_sum: false,
+            block_sums: Vec::new(),
         }
     }
 
@@ -485,7 +489,13 @@ impl EvalContext {
                 match kind {
                     AggKind::Sum => {
                         self.last_line_used_sum = true;
-                        self.sum_values(&self.aggregation_window)
+                        // Right after a blank line there is no block: add up the block sums above
+                        if self.aggregation_window.is_empty() {
+                            return self.sum_values(&self.block_sums);
+                        }
+                        let sum = self.sum_values(&self.aggregation_window)?;
+                        self.block_sums.push(sum.clone());
+                        Ok(sum)
                     }
                     AggKind::Average => {
                         let nums: Vec<f64> = self.aggregation_window.iter()
@@ -2261,6 +2271,21 @@ mod unicode_tests {
         ctx.eval_line("10 EUR").unwrap();
         assert!(ctx.eval_line("sum").is_err());
         assert!(ctx.eval_line("---").is_err());
+    }
+
+    #[test]
+    fn test_sum_without_block_adds_block_sums() {
+        let r = eval_lines(&[
+            "1 EUR = 10 SEK",
+            "100 SEK", "100 SEK", "sum", "",
+            "200 SEK", "200 SEK", "sum", "",
+            "sum in eur",
+        ]);
+        assert!(matches!(r[9], Value::WithCurrency(n, _) if (n - 60.0).abs() < 1e-9), "got {:?}", r[9]);
+        // A grand total is not counted again by a later one
+        let r = eval_lines(&["10", "sum", "", "sum", "", "5", "sum", "", "sum"]);
+        assert_eq!(r[3], Value::Number(10.0));
+        assert_eq!(r[8], Value::Number(15.0));
     }
 
     #[test]
