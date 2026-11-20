@@ -215,8 +215,10 @@ impl NumNumApp {
                 diagnostics.iter_mut().for_each(|d| *d = None);
             }
             let var_names: Vec<String> = eval_ctx.variables.keys().cloned().collect();
+            let sum_lines: Vec<bool> = results.iter().map(|r| matches!(r, LineResult::Sum(..))).collect();
             editor_for_eval.update(cx, |editor, _cx| {
                 editor.diagnostics = diagnostics.clone();
+                editor.sum_lines = sum_lines;
                 editor.set_known_variables(var_names);
             });
 

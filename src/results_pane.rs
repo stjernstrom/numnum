@@ -79,7 +79,7 @@ impl Render for ResultsPane {
                         LineResult::Sum(display, _) => (format!("= {display}"), theme.result),
                     };
                     let is_subtotal = matches!(result, LineResult::Subtotal(_));
-                    let has_rule = matches!(result, LineResult::Subtotal(_) | LineResult::Sum(..));
+                    let is_sum = matches!(result, LineResult::Sum(..));
 
                     let text_for_copy = if self.copy_full_precision {
                         match &result {
@@ -97,6 +97,7 @@ impl Render for ResultsPane {
                     let row_height = line_height * visual_count as f32;
                     children.push(
                         div()
+                            .relative()
                             .h(row_height)
                             .w_full()
                             .flex()
@@ -117,8 +118,16 @@ impl Render for ResultsPane {
                                         },
                                     )
                             })
-                            .when(!has_rule, |el| el.child(text.clone()))
-                            .when(has_rule, |el| {
+                            // Sum: band and a rule across the whole row, matching the editor side
+                            .when(is_sum, |el| {
+                                el.bg(theme.result.opacity(0.08)).child(
+                                    div().absolute().top_0().left_0().right_0().h(px(1.))
+                                        .bg(theme.text_dimmed.opacity(0.5)),
+                                )
+                            })
+                            .when(!is_subtotal, |el| el.child(text.clone()))
+                            // Subtotal: short rule over the value only
+                            .when(is_subtotal, |el| {
                                 el.child(
                                     div()
                                         .border_t_1()

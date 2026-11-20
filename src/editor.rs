@@ -190,6 +190,8 @@ pub struct Editor {
     currency_table: CurrencyTable,
     // Per-line diagnostics (error messages shown as inlay below the line)
     pub diagnostics: Vec<Option<String>>,
+    /// Lines that use `sum`: drawn with a band and a full-width rule above
+    pub sum_lines: Vec<bool>,
     pub show_diagnostics: bool,
     // Per-line layout cache (rebuilt each frame)
     line_layouts: Vec<Option<WrappedLine>>,
@@ -240,6 +242,7 @@ impl Editor {
             line_height: px(26.0),
             line_visual_counts: Vec::new(),
             page_lines: 20,
+            sum_lines: Vec::new(),
             cursor_visible: true,
             blink_epoch: 0,
             completion: CompletionState {
@@ -1962,12 +1965,26 @@ impl Render for Editor {
                     } else {
                         None
                     };
+                    let is_sum_line = self.sum_lines.get(i).copied().unwrap_or(false);
+                    // Band and rule reach past the editor padding to the window edge and divider
+                    let pad = self.font_size * 0.75;
+                    let sum_band = self.theme.result.opacity(0.08);
+                    let sum_rule = self.theme.text_dimmed.opacity(0.5);
                     children.push(
                         div()
+                            .relative()
                             .flex()
                             .flex_row()
                             .w_full()
                             .when_some(row_bg, |el, bg| el.bg(bg))
+                            .when(is_sum_line, |el| {
+                                el.child(
+                                    div().absolute().top_0().bottom_0().left(-pad).right(-pad).bg(sum_band),
+                                )
+                                .child(
+                                    div().absolute().top_0().left(-pad).right(-pad).h(px(1.)).bg(sum_rule),
+                                )
+                            })
                             .child(
                                 // Line number gutter — first visual line, baseline-aligned
                                 div()
