@@ -135,9 +135,6 @@ impl NumNumApp {
             }
             let mut results = Vec::new();
             let mut diagnostics: Vec<Option<String>> = Vec::new();
-            let mut running_total: f64 = 0.0;
-            let mut last_val = Value::None;
-            let mut has_any_value = false;
             // Per-line values for the selection sum (sum lines left out, like the total)
             let mut line_values: Vec<Option<Value>> = Vec::new();
 
@@ -167,11 +164,6 @@ impl NumNumApp {
                             results.push(LineResult::Sum(formatted, full_precision));
                         } else {
                             // Sum lines are left out of the total so values aren't counted twice
-                            if let Some(n) = val.as_number() {
-                                running_total += n;
-                                last_val = val.clone();
-                                has_any_value = true;
-                            }
                             line_values.push(Some(val.clone()));
                             results.push(LineResult::Value(formatted, full_precision));
                         }
@@ -187,29 +179,29 @@ impl NumNumApp {
                 }
             }
 
-            // Format a total with the last result's unit/currency
-            let format_total = |sum: f64, last: &Value| {
-                let total_val = match last {
-                    Value::WithUnit(_, u) => Value::WithUnit(sum, *u),
-                    Value::WithCurrency(_, c) => Value::WithCurrency(sum, *c),
-                    _ => Value::Number(sum),
-                };
-                format_value_with_precision(&total_val, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format)
+            // Add the values like `a + b`, so currencies and units are converted
+            // to the last value's. Empty when nothing to add.
+            let format_total = |values: &[Value]| -> String {
+                if !values.iter().any(|v| v.as_number().is_some()) {
+                    return String::new();
+                }
+                match eval_ctx.sum_values(values) {
+                    Ok(total) => format_value_with_precision(
+                        &total, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format,
+                    ),
+                    Err(_) => "mixed units".to_string(),
+                }
             };
-            let total_str = if !has_any_value {
-                String::new()
-            } else {
-                format_total(running_total, &last_val)
-            };
+            let all_values: Vec<Value> = line_values.iter().flatten().cloned().collect();
+            let total_str = format_total(&all_values);
 
             // Sum of the selected lines when more than one line is selected
             let selected_str = editor_for_eval.read(cx).selected_lines()
                 .filter(|r| r.len() > 1)
                 .map(|r| {
                     let end = r.end.min(line_values.len());
-                    let values: Vec<&Value> = line_values[r.start.min(end)..end].iter().flatten().collect();
-                    let sum: f64 = values.iter().filter_map(|v| v.as_number()).sum();
-                    format_total(sum, values.last().copied().unwrap_or(&Value::None))
+                    let values: Vec<Value> = line_values[r.start.min(end)..end].iter().flatten().cloned().collect();
+                    format_total(&values)
                 });
 
             // Update editor diagnostics and variables (for inlay rendering + autocomplete)

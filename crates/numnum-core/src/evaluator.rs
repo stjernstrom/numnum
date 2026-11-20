@@ -110,6 +110,16 @@ impl EvalContext {
             .ok_or_else(|| EvalError::InvalidCurrency("Invalid currency id".to_string()))
     }
 
+    /// Add values the way `a + b` does, converting currencies and units to
+    /// those of the last value. Values that are not numbers are skipped.
+    pub fn sum_values(&self, values: &[Value]) -> Result<Value, EvalError> {
+        let mut values = values.iter().rev().filter(|v| v.as_number().is_some());
+        let Some(last) = values.next() else {
+            return Ok(Value::Number(0.0));
+        };
+        values.try_fold(last.clone(), |acc, v| self.eval_binary_op(BinOp::Add, acc, v.clone()))
+    }
+
     /// Handle a rate line like "1 EUR = 10.95 SEK". Returns None if the line is not one.
     /// The left side must be a plain amount and currency, so "x = 10 SEK" stays an assignment.
     fn try_rate_definition(&mut self, line: &str) -> Option<Result<Value, EvalError>> {
@@ -2171,6 +2181,26 @@ mod unicode_tests {
         assert!((currency_amount(ctx.eval_line("1 EUR in SEK").unwrap()) - 100.0 / 9.0).abs() < 1e-9);
         ctx.eval_line("1 EUR = 11 SEK").unwrap();
         assert!((currency_amount(ctx.eval_line("1 EUR in SEK").unwrap()) - 11.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_sum_values_converts_currencies() {
+        let mut ctx = EvalContext::new();
+        ctx.eval_line("1 EUR = 10 SEK").unwrap();
+        let values = vec![
+            ctx.eval_line("100 SEK").unwrap(),
+            ctx.eval_line("5").unwrap(),
+            ctx.eval_line("10 EUR").unwrap(),
+        ];
+        // In the last value's currency: 10 EUR + 5 + 100 SEK (= 10 EUR)
+        match ctx.sum_values(&values).unwrap() {
+            Value::WithCurrency(n, c) => {
+                assert!((n - 25.0).abs() < 1e-9, "got {n}");
+                assert_eq!(Some(c), ctx.currency_table.lookup("EUR"));
+            }
+            other => panic!("expected currency, got {other:?}"),
+        }
+        assert!(matches!(ctx.sum_values(&[]).unwrap(), Value::Number(n) if n == 0.0));
     }
 
     #[test]
