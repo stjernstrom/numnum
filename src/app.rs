@@ -137,8 +137,16 @@ impl NumNumApp {
             let mut diagnostics: Vec<Option<String>> = Vec::new();
             // Per-line values for the selection sum (sum lines left out, like the total)
             let mut line_values: Vec<Option<Value>> = Vec::new();
+            // Unit or currency of the current block (lines up to a blank line), from any
+            // value or sum line in it. Plain numbers in the block count in it for the totals.
+            let mut block_start = 0;
+            let mut block_unit: Option<Value> = None;
 
             for line_text in content.split('\n') {
+                if line_text.trim().is_empty() {
+                    adopt_unit(&mut line_values[block_start..], block_unit.take().as_ref());
+                    block_start = line_values.len();
+                }
                 let value_count = line_values.len();
                 match eval_ctx.eval_line(line_text) {
                     Ok(Value::None) => {
@@ -146,6 +154,9 @@ impl NumNumApp {
                         diagnostics.push(None);
                     }
                     Ok(val @ Value::Subtotal(_)) => {
+                        if let Value::Subtotal(inner) = &val && has_unit(inner) {
+                            block_unit = Some((**inner).clone());
+                        }
                         let formatted = format_value_with_precision(
                             &val, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format,
                         );
@@ -153,6 +164,9 @@ impl NumNumApp {
                         diagnostics.push(None);
                     }
                     Ok(val) => {
+                        if has_unit(&val) {
+                            block_unit = Some(val.clone());
+                        }
                         let fmt = this.number_format;
                         let formatted = format_value_with_precision(
                             &val, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, fmt,
@@ -178,6 +192,7 @@ impl NumNumApp {
                     line_values.push(None);
                 }
             }
+            adopt_unit(&mut line_values[block_start..], block_unit.as_ref());
 
             // Add the values like `a + b`, so currencies and units are converted
             // to the last value's. Empty when nothing to add.
@@ -1087,6 +1102,26 @@ impl Render for NumNumApp {
     }
 }
 
+fn has_unit(value: &Value) -> bool {
+    matches!(value, Value::WithUnit(..) | Value::WithCompoundUnit(..) | Value::WithCurrency(..))
+}
+
+/// Give plain numbers the unit or currency of `unit`, so a block like
+/// "100, 100, sum in sek" counts as kronor in the status bar totals.
+fn adopt_unit(values: &mut [Option<Value>], unit: Option<&Value>) {
+    let Some(unit) = unit else { return };
+    for value in values.iter_mut().flatten() {
+        if let Value::Number(n) = *value {
+            *value = match unit {
+                Value::WithUnit(_, u) => Value::WithUnit(n, *u),
+                Value::WithCompoundUnit(_, factors) => Value::WithCompoundUnit(n, factors.clone()),
+                Value::WithCurrency(_, c) => Value::WithCurrency(n, *c),
+                _ => continue,
+            };
+        }
+    }
+}
+
 /// Lines with their results in a right-aligned column, as plain text.
 /// Lines without a result are kept as they are.
 fn format_with_results(lines: &[&str], results: &[String]) -> String {
@@ -1111,7 +1146,22 @@ fn format_with_results(lines: &[&str], results: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_with_results;
+    use super::{adopt_unit, format_with_results};
+    use numnum_core::Value;
+    use numnum_core::types::CurrencyId;
+
+    #[test]
+    fn test_adopt_unit_tags_plain_numbers_only() {
+        let sek = Value::WithCurrency(1.0, CurrencyId(13));
+        let mut values = vec![Some(Value::Number(100.0)), None, Some(Value::WithCurrency(5.0, CurrencyId(1)))];
+        adopt_unit(&mut values, Some(&sek));
+        assert_eq!(values[0], Some(Value::WithCurrency(100.0, CurrencyId(13))));
+        assert_eq!(values[1], None);
+        assert_eq!(values[2], Some(Value::WithCurrency(5.0, CurrencyId(1))));
+        let mut plain = vec![Some(Value::Number(1.0))];
+        adopt_unit(&mut plain, None);
+        assert_eq!(plain[0], Some(Value::Number(1.0)));
+    }
 
     #[test]
     fn test_format_with_results() {
