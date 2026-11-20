@@ -208,6 +208,17 @@ impl NumNumApp {
                 line_units.push(line_unit);
             }
             adopt_unit(&mut line_values[block_start..], block_unit.or(block_sum_unit).as_ref());
+            // Show the inherited unit on plain-number lines too, so the column matches the totals
+            for (result, value) in results.iter_mut().zip(&line_values) {
+                if let (LineResult::Value(..), Some(value)) = (&*result, value)
+                    && has_unit(value)
+                {
+                    *result = LineResult::Value(
+                        format_value_with_precision(value, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format),
+                        format_value_full_precision(value, &eval_ctx.unit_table, &eval_ctx.currency_table, this.number_format),
+                    );
+                }
+            }
 
             // Add the values like `a + b`, so currencies and units are converted
             // to the last value's. Empty when nothing to add.
