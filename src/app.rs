@@ -42,6 +42,8 @@ pub struct NumNumApp {
     viewport_height: Pixels,
     autoscroll_to_line: Option<usize>,
     title_bar: String,
+    /// Last title sent to the window manager, so it is only set when it changes
+    window_title: String,
     titlebar_should_move: bool,
     number_format: NumberFormat,
     session_path: Option<PathBuf>,
@@ -328,6 +330,7 @@ impl NumNumApp {
             viewport_height: px(0.),
             autoscroll_to_line: None,
             title_bar: settings.window.title_bar.clone(),
+            window_title: String::new(),
             titlebar_should_move: false,
             number_format: NumberFormat::from_str(&settings.editor.number_format),
             session_path: initial_session.as_ref().map(|(path, _, _)| path.clone()),
@@ -629,7 +632,19 @@ impl Render for NumNumApp {
         // Auto-scroll to cursor using real layout data
         let line_height = window.line_height();
         // Scrollable viewport = window height - status bar (28px) - custom titlebar if present
-        let titlebar_height = if self.title_bar == "numnum" { px(32.) } else { px(0.) };
+        let has_titlebar = matches!(self.title_bar.as_str(), "numnum" | "info");
+        let titlebar_height = if has_titlebar { px(32.) } else { px(0.) };
+        // File name without extension for a saved file, otherwise "Scratchpad"
+        let doc_title = self.session_path.as_ref()
+            .filter(|p| crate::session::is_document_file(p))
+            .and_then(|p| p.file_stem())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Scratchpad".to_string());
+        let window_title = format!("{doc_title} – NumNum");
+        if window_title != self.window_title {
+            window.set_window_title(&window_title);
+            self.window_title = window_title;
+        }
         let scroll_viewport_height = self.viewport_height - px(28.) - titlebar_height;
         let visible_lines = (f32::from(scroll_viewport_height) / f32::from(line_height)).floor() as usize;
         self.editor.update(cx, |editor, _| editor.page_lines = visible_lines.saturating_sub(1).max(1));
@@ -687,7 +702,9 @@ impl Render for NumNumApp {
             .on_scroll_wheel(cx.listener(Self::on_ctrl_scroll))
             // Custom "numnum" title bar (follows Zed's pattern:
             // explicit start_window_move on mouse_move, explicit button click handlers)
-            .when(self.title_bar == "numnum", |el| {
+            // "info" shows the same bar without the window buttons
+            .when(has_titlebar, |el| {
+                let show_window_buttons = self.title_bar == "numnum";
                 let title_color = self.theme.text_muted;
                 let bar_bg = self.theme.editor_background;
                 let is_macos = cfg!(target_os = "macos");
@@ -723,6 +740,9 @@ impl Render for NumNumApp {
                 if is_macos {
                     // macOS: system traffic lights via TitlebarOptions, just pad left
                     bar = bar.child(div().w(px(72.)));
+                } else if !show_window_buttons {
+                    // Same width as the burger side, so the title stays centred
+                    bar = bar.child(div().w(px(68.)));
                 } else {
                     // Linux/FreeBSD: our own traffic light circles with explicit click handlers
                     let close_color = self.theme.error;
@@ -781,7 +801,7 @@ impl Render for NumNumApp {
                             .justify_center()
                             .text_size(px(13.))
                             .text_color(title_color)
-                            .child("NumNum"),
+                            .child(doc_title.clone()),
                     )
                     .child(
                         div()

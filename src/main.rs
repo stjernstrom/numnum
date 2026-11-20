@@ -179,7 +179,7 @@ fn main() {
         let _pre_window_theme = theme.clone();
 
         let custom_titlebar = matches!(
-            settings.window.title_bar.as_str(), "none" | "numnum"
+            settings.window.title_bar.as_str(), "none" | "numnum" | "info"
         );
         let _window_handle = cx
             .open_window(

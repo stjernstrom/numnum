@@ -121,7 +121,8 @@ impl SettingsPane {
     fn cycle_title_bar(&mut self, cx: &mut Context<Self>) {
         let next = match self.settings.window.title_bar.as_str() {
             "system" => "numnum",
-            "numnum" => "none",
+            "numnum" => "info",
+            "info" => "none",
             _ => "system",
         };
         self.settings.window.title_bar = next.to_string();
@@ -242,6 +243,7 @@ impl Render for SettingsPane {
         };
         let title_bar_val = match settings.window.title_bar.as_str() {
             "numnum" => "NumNum",
+            "info" => "Info",
             "none" => "None",
             _ => "System",
         };

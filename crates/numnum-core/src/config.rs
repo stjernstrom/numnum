@@ -15,7 +15,7 @@ pub struct Settings {
 pub struct WindowSettings {
     pub width: f32,
     pub height: f32,
-    pub title_bar: String, // "system", "none", "numnum"
+    pub title_bar: String, // "system", "none", "numnum", "info"
 }
 
 #[derive(Debug, Clone)]
