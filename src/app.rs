@@ -144,6 +144,9 @@ impl NumNumApp {
             let mut block_start = 0;
             let mut block_unit: Option<Value> = None;
             let mut block_sum_unit: Option<Value> = None;
+            // Per line: the result if it has a unit or currency, sum lines included.
+            // The totals are shown in the last one of these.
+            let mut line_units: Vec<Option<Value>> = Vec::new();
 
             for line_text in content.split('\n') {
                 if line_text.trim().is_empty() {
@@ -152,6 +155,7 @@ impl NumNumApp {
                     block_start = line_values.len();
                 }
                 let value_count = line_values.len();
+                let mut line_unit = None;
                 match eval_ctx.eval_line(line_text) {
                     Ok(Value::None) => {
                         results.push(LineResult::None);
@@ -160,6 +164,7 @@ impl NumNumApp {
                     Ok(val @ Value::Subtotal(_)) => {
                         if let Value::Subtotal(inner) = &val && has_unit(inner) {
                             block_sum_unit = Some((**inner).clone());
+                            line_unit = Some((**inner).clone());
                         }
                         let formatted = format_value_with_precision(
                             &val, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format,
@@ -169,6 +174,7 @@ impl NumNumApp {
                     }
                     Ok(val) => {
                         if has_unit(&val) {
+                            line_unit = Some(val.clone());
                             if eval_ctx.last_line_used_sum {
                                 block_sum_unit = Some(val.clone());
                             } else {
@@ -199,33 +205,36 @@ impl NumNumApp {
                 if line_values.len() == value_count {
                     line_values.push(None);
                 }
+                line_units.push(line_unit);
             }
             adopt_unit(&mut line_values[block_start..], block_unit.or(block_sum_unit).as_ref());
 
             // Add the values like `a + b`, so currencies and units are converted
             // to the last value's. Empty when nothing to add.
-            let format_total = |values: &[Value]| -> String {
+            let format_total = |range: std::ops::Range<usize>| -> String {
+                let end = range.end.min(line_values.len());
+                let start = range.start.min(end);
+                let mut values: Vec<Value> = line_values[start..end].iter().flatten().cloned().collect();
                 if !values.iter().any(|v| v.as_number().is_some()) {
                     return String::new();
                 }
-                match eval_ctx.sum_values(values) {
+                // sum_values converts to the last value's unit, so end with a zero in the target
+                if let Some(target) = line_units[start..end.min(line_units.len())].iter().flatten().last() {
+                    values.push(zero_in(target));
+                }
+                match eval_ctx.sum_values(&values) {
                     Ok(total) => format_value_with_precision(
                         &total, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format,
                     ),
                     Err(_) => "mixed units".to_string(),
                 }
             };
-            let all_values: Vec<Value> = line_values.iter().flatten().cloned().collect();
-            let total_str = format_total(&all_values);
+            let total_str = format_total(0..line_values.len());
 
             // Sum of the selected lines when more than one line is selected
             let selected_str = editor_for_eval.read(cx).selected_lines()
                 .filter(|r| r.len() > 1)
-                .map(|r| {
-                    let end = r.end.min(line_values.len());
-                    let values: Vec<Value> = line_values[r.start.min(end)..end].iter().flatten().cloned().collect();
-                    format_total(&values)
-                });
+                .map(format_total);
 
             // Update editor diagnostics and variables (for inlay rendering + autocomplete)
             let visual_counts = editor_for_eval.read(cx).line_visual_counts.clone();
@@ -1107,6 +1116,16 @@ impl Render for NumNumApp {
                         }))
                 )
             })
+    }
+}
+
+/// Zero in the unit or currency of `value`.
+fn zero_in(value: &Value) -> Value {
+    match value {
+        Value::WithUnit(_, u) => Value::WithUnit(0.0, *u),
+        Value::WithCompoundUnit(_, factors) => Value::WithCompoundUnit(0.0, factors.clone()),
+        Value::WithCurrency(_, c) => Value::WithCurrency(0.0, *c),
+        _ => Value::Number(0.0),
     }
 }
 
