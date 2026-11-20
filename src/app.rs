@@ -77,6 +77,7 @@ impl NumNumApp {
         let settings_pane_for_bar = settings_pane.clone();
         let app_for_copy = cx.entity().downgrade();
         let app_for_menu = cx.entity().downgrade();
+        let title_bar_has_menu = matches!(settings.window.title_bar.as_str(), "numnum" | "info");
         let status_bar = cx.new(|_| StatusBar::new(
             theme.clone(),
             Some(Arc::new(move |_window: &mut Window, cx: &mut App| {
@@ -91,6 +92,7 @@ impl NumNumApp {
                 let _ = app_for_menu.update(cx, |this, cx| this.toggle_burger_menu(cx));
             })),
         ));
+        status_bar.update(cx, |bar, _| bar.show_menu_button = !title_bar_has_menu);
 
         let theme_clone = theme.clone();
         let font_for_app = font_family.clone();

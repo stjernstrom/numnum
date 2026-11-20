@@ -17,6 +17,8 @@ pub struct StatusBar {
     on_settings_click: Option<Arc<dyn Fn(&mut Window, &mut App)>>,
     on_copy_click: Option<Arc<dyn Fn(&mut Window, &mut App)>>,
     on_menu_click: Option<Arc<dyn Fn(&mut Window, &mut App)>>,
+    /// Off when the NumNum title bar already has the menu button
+    pub show_menu_button: bool,
 }
 
 impl StatusBar {
@@ -37,6 +39,7 @@ impl StatusBar {
             on_settings_click,
             on_copy_click,
             on_menu_click,
+            show_menu_button: true,
         }
     }
 
@@ -146,7 +149,7 @@ impl Render for StatusBar {
                     }),
             )
             // Documents: sessions, open and save files
-            .child(
+            .when(self.show_menu_button, |el| el.child(
                 div()
                     .id("menu-btn")
                     .flex_shrink_0()
@@ -170,7 +173,7 @@ impl Render for StatusBar {
                             },
                         )
                     }),
-            )
+            ))
             // Center: total
             .child(
                 div()
