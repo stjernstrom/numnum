@@ -1966,8 +1966,10 @@ impl Render for Editor {
                         None
                     };
                     let is_sum_line = self.sum_lines.get(i).copied().unwrap_or(false);
-                    // Band and rule reach past the editor padding to the window edge and divider
+                    // Band and rule reach past the editor padding to the window edge, and on
+                    // the right across the 14px divider gap (see app.rs) to the results column
                     let pad = self.font_size * 0.75;
+                    let pad_right = pad + px(14.);
                     let sum_band = self.theme.result.opacity(0.08);
                     let sum_rule = self.theme.text_dimmed.opacity(0.5);
                     children.push(
@@ -1979,10 +1981,10 @@ impl Render for Editor {
                             .when_some(row_bg, |el, bg| el.bg(bg))
                             .when(is_sum_line, |el| {
                                 el.child(
-                                    div().absolute().top_0().bottom_0().left(-pad).right(-pad).bg(sum_band),
+                                    div().absolute().top_0().bottom_0().left(-pad).right(-pad_right).bg(sum_band),
                                 )
                                 .child(
-                                    div().absolute().top_0().left(-pad).right(-pad).h(px(1.)).bg(sum_rule),
+                                    div().absolute().top_0().left(-pad).right(-pad_right).h(px(1.)).bg(sum_rule),
                                 )
                             })
                             .child(
