@@ -562,6 +562,14 @@ impl EvalContext {
 
     // Fix #2: convert RHS to LHS unit BEFORE doing arithmetic
     fn eval_binary_op(&self, op: BinOp, lhs: Value, rhs: Value) -> Result<Value, EvalError> {
+        // A unit and a currency cannot be added or subtracted (5 kg + 10 EUR)
+        if matches!(op, BinOp::Add | BinOp::Sub) {
+            let has_unit = |v: &Value| matches!(v, Value::WithUnit(..) | Value::WithCompoundUnit(..));
+            let has_currency = |v: &Value| matches!(v, Value::WithCurrency(..));
+            if (has_unit(&lhs) && has_currency(&rhs)) || (has_currency(&lhs) && has_unit(&rhs)) {
+                return Err(EvalError::IncompatibleUnits);
+            }
+        }
         // --- Same-dimension units: convert before arithmetic ---
         if let (Value::WithUnit(ln, lu), Value::WithUnit(rn, ru)) = (&lhs, &rhs)
             && let (Some(lu_def), Some(ru_def)) = (self.unit_table.get(*lu), self.unit_table.get(*ru))
@@ -2238,6 +2246,21 @@ mod unicode_tests {
             other => panic!("expected subtotal, got {other:?}"),
         }
         assert!(matches!(r[5], Value::WithCurrency(n, _) if (n - 25.0).abs() < 1e-9), "got {:?}", r[5]);
+    }
+
+    #[test]
+    fn test_unit_and_currency_cannot_be_added() {
+        let mut ctx = EvalContext::new();
+        assert!(ctx.eval_line("5 kg + 10 EUR").is_err());
+        assert!(ctx.eval_line("10 EUR - 5 kg").is_err());
+        assert!(ctx.eval_line("5 kg + 2").is_ok());
+        assert!(ctx.eval_line("10 EUR + 2").is_ok());
+        assert!(ctx.eval_line("10 EUR * 2").is_ok());
+        let mut ctx = EvalContext::new();
+        ctx.eval_line("5 kg").unwrap();
+        ctx.eval_line("10 EUR").unwrap();
+        assert!(ctx.eval_line("sum").is_err());
+        assert!(ctx.eval_line("---").is_err());
     }
 
     #[test]
