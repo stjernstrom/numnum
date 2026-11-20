@@ -12,7 +12,7 @@ use gpui::{App, Bounds, Focusable, KeyBinding, Point, SharedString, TitlebarOpti
 use gpui_platform::application;
 use numnum_core::{Settings, ThemeFile};
 
-use crate::app::{CloseWindow, NewSession, NumNumApp, OpenFile, SaveFile, SaveFileAs};
+use crate::app::{CloseWindow, FontLarger, FontReset, FontSmaller, NewSession, NumNumApp, OpenFile, SaveFile, SaveFileAs};
 use crate::editor::*;
 use crate::settings_pane::EscapeSettings;
 use crate::theme::Theme;
@@ -128,6 +128,11 @@ fn main() {
             KeyBinding::new("escape", EscapeSettings, Some("SettingsPane")),
             KeyBinding::new("super-w", CloseWindow, None),
             KeyBinding::new("ctrl-n", NewSession, None),
+            // "+" is its own key on Nordic layouts and shift-= on US layouts
+            KeyBinding::new("ctrl-+", FontLarger, None),
+            KeyBinding::new("ctrl-=", FontLarger, None),
+            KeyBinding::new("ctrl--", FontSmaller, None),
+            KeyBinding::new("ctrl-0", FontReset, None),
             KeyBinding::new("cmd-n", NewSession, None),
             KeyBinding::new("ctrl-o", OpenFile, None),
             KeyBinding::new("cmd-o", OpenFile, None),

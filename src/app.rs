@@ -20,7 +20,7 @@ use crate::settings_pane::SettingsPane;
 use crate::status_bar::StatusBar;
 use crate::theme::Theme;
 
-actions!(numnum, [CloseWindow, NewSession, OpenFile, SaveFile, SaveFileAs]);
+actions!(numnum, [CloseWindow, NewSession, OpenFile, SaveFile, SaveFileAs, FontLarger, FontSmaller, FontReset]);
 
 pub struct NumNumApp {
     pub editor: Entity<Editor>,
@@ -364,7 +364,12 @@ impl NumNumApp {
         };
         if delta_y.abs() < 0.01 { return; }
         let step = if delta_y > 0.0 { -1.0 } else { 1.0 };
-        self.font_size = (self.font_size + step).clamp(8.0, 72.0);
+        self.set_font_size(self.font_size + step, window, cx);
+    }
+
+    /// Change the font size (8–72) everywhere and save it to the settings.
+    fn set_font_size(&mut self, size: f32, window: &mut Window, cx: &mut Context<Self>) {
+        self.font_size = size.clamp(8.0, 72.0);
         window.set_rem_size(px(self.font_size));
         self.editor.update(cx, |editor, _| {
             editor.font_size = px(self.font_size);
@@ -691,6 +696,11 @@ impl Render for NumNumApp {
         div()
             .on_action(|_: &CloseWindow, window, _cx| window.remove_window())
             .on_action(cx.listener(|this, _: &NewSession, _, cx| this.new_session(cx)))
+            .on_action(cx.listener(|this, _: &FontLarger, window, cx| this.set_font_size(this.font_size + 1.0, window, cx)))
+            .on_action(cx.listener(|this, _: &FontSmaller, window, cx| this.set_font_size(this.font_size - 1.0, window, cx)))
+            .on_action(cx.listener(|this, _: &FontReset, window, cx| {
+                this.set_font_size(Settings::default().editor.font_size, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &OpenFile, _, cx| this.open_file_dialog(cx)))
             .on_action(cx.listener(|this, _: &SaveFile, _, cx| this.save_file(cx)))
             .on_action(cx.listener(|this, _: &SaveFileAs, _, cx| this.save_file_as_dialog(cx)))
