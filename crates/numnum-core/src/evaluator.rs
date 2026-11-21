@@ -478,20 +478,17 @@ impl EvalContext {
             Expr::ReversePercentOff { pct, result } => self.eval_reverse_percent(pct, result, PercentMode::Off),
 
             Expr::AsAPercentOf { value, base } => {
-                let v = self.eval_expr(value)?.as_number().ok_or_else(|| EvalError::TypeMismatch("Value must be numeric".to_string()))?;
-                let b = self.eval_expr(base)?.as_number().ok_or_else(|| EvalError::TypeMismatch("Base must be numeric".to_string()))?;
+                let (v, b) = self.percent_operands(value, base)?;
                 Ok(Value::Percent(v / b))
             }
 
             Expr::AsAPercentOn { value, base } => {
-                let v = self.eval_expr(value)?.as_number().ok_or_else(|| EvalError::TypeMismatch("Value must be numeric".to_string()))?;
-                let b = self.eval_expr(base)?.as_number().ok_or_else(|| EvalError::TypeMismatch("Base must be numeric".to_string()))?;
+                let (v, b) = self.percent_operands(value, base)?;
                 Ok(Value::Percent((v - b) / b))
             }
 
             Expr::AsAPercentOff { value, base } => {
-                let v = self.eval_expr(value)?.as_number().ok_or_else(|| EvalError::TypeMismatch("Value must be numeric".to_string()))?;
-                let b = self.eval_expr(base)?.as_number().ok_or_else(|| EvalError::TypeMismatch("Base must be numeric".to_string()))?;
+                let (v, b) = self.percent_operands(value, base)?;
                 Ok(Value::Percent((b - v) / b))
             }
 
@@ -533,6 +530,28 @@ impl EvalContext {
     }
 
     // Fix #9: extracted percent helper for Of/On/Off
+    /// Both sides of "x as a % of y" as numbers, with x converted to y's unit or currency.
+    fn percent_operands(&mut self, value_expr: &Expr, base_expr: &Expr) -> Result<(f64, f64), EvalError> {
+        let v = self.eval_expr(value_expr)?;
+        let b = self.eval_expr(base_expr)?;
+        let bn = b.as_number().ok_or_else(|| EvalError::TypeMismatch("Base must be numeric".to_string()))?;
+        let vn = match (&v, &b) {
+            (Value::WithUnit(n, from), Value::WithUnit(_, to)) => {
+                self.unit_table.convert(*n, *from, *to).ok_or(EvalError::IncompatibleUnits)?
+            }
+            (Value::WithCurrency(n, from), Value::WithCurrency(_, to)) => self.convert_currency(*n, *from, *to)?,
+            (Value::WithCurrencyRate(n, fc, fu), Value::WithCurrencyRate(_, tc, tu)) => {
+                let n = self.rate_in_unit(*n, *fu, *tu)?;
+                self.convert_currency(n, *fc, *tc)?
+            }
+            (Value::WithUnit(..) | Value::WithCurrency(..) | Value::WithCurrencyRate(..), Value::WithUnit(..) | Value::WithCurrency(..) | Value::WithCurrencyRate(..)) => {
+                return Err(EvalError::IncompatibleUnits);
+            }
+            _ => v.as_number().ok_or_else(|| EvalError::TypeMismatch("Value must be numeric".to_string()))?,
+        };
+        Ok((vn, bn))
+    }
+
     fn eval_percent_apply(&mut self, pct_expr: &Expr, base_expr: &Expr, mode: PercentMode) -> Result<Value, EvalError> {
         let p = self.eval_expr(pct_expr)?.as_number().ok_or_else(|| EvalError::TypeMismatch("Percent must be numeric".to_string()))?;
         let b = self.eval_expr(base_expr)?;
@@ -2351,6 +2370,19 @@ mod unicode_tests {
         assert!(matches!(ctx.eval_line("2 SEK/min + 50%").unwrap(), Value::WithCurrencyRate(n, _, _) if n == 3.0));
         assert!(ctx.eval_line("5 kg * 2 SEK/min").is_err());
         assert!(ctx.eval_line("2 SEK/min + 5 SEK").is_err());
+    }
+
+    #[test]
+    fn test_as_a_percent_converts_to_the_base_unit() {
+        let mut ctx = EvalContext::new();
+        let pct = |v: Value| match v { Value::Percent(p) => p, other => panic!("{other:?}") };
+        assert!((pct(ctx.eval_line("30 min as a % of 2 h").unwrap()) - 0.25).abs() < 1e-12);
+        assert!((pct(ctx.eval_line("90 min as a % on 1 h").unwrap()) - 0.5).abs() < 1e-12);
+        assert!((pct(ctx.eval_line("1 SEK/min as a % of 120 SEK/h").unwrap()) - 0.5).abs() < 1e-12);
+        assert!(ctx.eval_line("5 kg as a % of 2 h").is_err());
+        assert!(ctx.eval_line("5 SEK as a % of 2 h").is_err());
+        assert!((pct(ctx.eval_line("5 as a % of 20").unwrap()) - 0.25).abs() < 1e-12);
+        assert!((pct(eval_swedish("6 191,81 hours as a % of 12 383,62 hours").unwrap()) - 0.5).abs() < 1e-12);
     }
 
     #[test]
