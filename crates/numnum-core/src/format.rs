@@ -95,8 +95,16 @@ pub fn format_number(n: f64, precision: u32, fmt: NumberFormat) -> String {
         return format_with_separators(&format!("{}", n as i64), fmt);
     }
 
+    // Small numbers: plain decimals with `precision` significant digits (0.007, 0.0012)
+    if n != 0.0 && n.abs() >= 1e-6 && n.abs() < 0.01 {
+        let decimals = precision as usize + (-n.abs().log10()).floor() as usize;
+        let s = format!("{:.*}", decimals, n);
+        let s = s.trim_end_matches('0').trim_end_matches('.');
+        return format_with_separators(s, fmt);
+    }
+
     // Very large or very small numbers: use scientific notation
-    if n != 0.0 && (n.abs() >= 1e15 || n.abs() < 0.01) {
+    if n != 0.0 && (n.abs() >= 1e15 || n.abs() < 1e-6) {
         let s = format!("{:.6e}", n);
         if let Some(e_pos) = s.find('e') {
             let mantissa = s[..e_pos].trim_end_matches('0').trim_end_matches('.');
@@ -267,6 +275,10 @@ mod tests {
     #[test]
     fn test_format_currency() {
         assert_eq!(format_currency_with_precision(10.0, "$%@", Some(2), NumberFormat::US), "$10");
+        assert_eq!(format_number(0.007, 2, NumberFormat::US), "0.007");
+        assert_eq!(format_number(0.00123, 2, NumberFormat::US), "0.0012");
+        assert_eq!(format_number(-0.007, 2, NumberFormat::US), "-0.007");
+        assert_eq!(format_number(1.5e-7, 2, NumberFormat::US), "1.5e-7");
         assert_eq!(format_currency_with_precision(86.83, "\u{20AC} %@", Some(2), NumberFormat::US), "\u{20AC} 86.83");
         assert_eq!(format_currency_with_precision(150.0, "%@ SFr.", Some(2), NumberFormat::US), "150 SFr.");
     }
