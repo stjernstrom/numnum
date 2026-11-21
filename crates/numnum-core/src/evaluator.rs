@@ -572,8 +572,8 @@ impl EvalContext {
 
     // Fix #2: convert RHS to LHS unit BEFORE doing arithmetic
     fn eval_binary_op(&self, op: BinOp, lhs: Value, rhs: Value) -> Result<Value, EvalError> {
-        // A unit and a currency cannot be added or subtracted (5 kg + 10 EUR)
-        if matches!(op, BinOp::Add | BinOp::Sub) {
+        // A unit and a currency cannot be combined (5 kg + 10 EUR, 120 min * 2 SEK)
+        {
             let has_unit = |v: &Value| matches!(v, Value::WithUnit(..) | Value::WithCompoundUnit(..));
             let has_currency = |v: &Value| matches!(v, Value::WithCurrency(..));
             if (has_unit(&lhs) && has_currency(&rhs)) || (has_currency(&lhs) && has_unit(&rhs)) {
@@ -2266,6 +2266,9 @@ mod unicode_tests {
         assert!(ctx.eval_line("5 kg + 2").is_ok());
         assert!(ctx.eval_line("10 EUR + 2").is_ok());
         assert!(ctx.eval_line("10 EUR * 2").is_ok());
+        assert!(ctx.eval_line("120 min * 2 SEK").is_err());
+        assert!(ctx.eval_line("2 SEK * 120 min").is_err());
+        assert!(ctx.eval_line("120 min / 2 SEK").is_err());
         let mut ctx = EvalContext::new();
         ctx.eval_line("5 kg").unwrap();
         ctx.eval_line("10 EUR").unwrap();
