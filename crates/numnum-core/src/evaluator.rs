@@ -544,6 +544,7 @@ impl EvalContext {
         };
         Ok(match b {
             Value::WithCurrency(_, c) => Value::WithCurrency(result, c),
+            Value::WithCurrencyRate(_, c, u) => Value::WithCurrencyRate(result, c, u),
             Value::WithUnit(_, u) => Value::WithUnit(result, u),
             _ => Value::Number(result),
         })
@@ -561,6 +562,7 @@ impl EvalContext {
         };
         Ok(match b {
             Value::WithCurrency(_, c) => Value::WithCurrency(result, c),
+            Value::WithCurrencyRate(_, c, u) => Value::WithCurrencyRate(result, c, u),
             Value::WithUnit(_, u) => Value::WithUnit(result, u),
             _ => Value::Number(result),
         })
@@ -2345,6 +2347,8 @@ mod unicode_tests {
         assert!(matches!(ctx.eval_line("2 SEK/min in SEK/h").unwrap(), Value::WithCurrencyRate(n, _, _) if n == 120.0));
         assert!(matches!(ctx.eval_line("2 SEK/min * 3").unwrap(), Value::WithCurrencyRate(n, _, _) if n == 6.0));
         assert!(matches!(ctx.eval_line("2 SEK/min + 60 SEK/h").unwrap(), Value::WithCurrencyRate(n, _, _) if n == 3.0));
+        assert!(matches!(ctx.eval_line("5% of 2 SEK/min").unwrap(), Value::WithCurrencyRate(n, _, _) if (n - 0.1).abs() < 1e-12));
+        assert!(matches!(ctx.eval_line("2 SEK/min + 50%").unwrap(), Value::WithCurrencyRate(n, _, _) if n == 3.0));
         assert!(ctx.eval_line("5 kg * 2 SEK/min").is_err());
         assert!(ctx.eval_line("2 SEK/min + 5 SEK").is_err());
     }
