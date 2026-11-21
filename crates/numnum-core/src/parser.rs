@@ -155,7 +155,7 @@ impl Parser {
             TokenKind::CurrencySymbol(id) => {
                 self.advance();
                 let expr = self.parse_expr(19)?; // high bp, just grab a number
-                Ok(Expr::WithCurrency { expr: Box::new(expr), currency: id })
+                Ok(self.per_unit(Expr::WithCurrency { expr: Box::new(expr), currency: id }))
             }
             TokenKind::Currency(id) => {
                 // Currency code in prefix position: "INR 50", "USD 100"
@@ -165,7 +165,7 @@ impl Parser {
                 {
                     self.advance();
                     let expr = self.parse_expr(19)?;
-                    Ok(Expr::WithCurrency { expr: Box::new(expr), currency: id })
+                    Ok(self.per_unit(Expr::WithCurrency { expr: Box::new(expr), currency: id }))
                 } else {
                     // Not followed by a number — error
                     self.advance();
@@ -249,17 +249,34 @@ impl Parser {
         if let TokenKind::Currency(id) = self.peek() {
             let id = *id;
             self.advance();
-            return Ok(Expr::WithCurrency { expr: Box::new(expr), currency: id });
+            return Ok(self.per_unit(Expr::WithCurrency { expr: Box::new(expr), currency: id }));
         }
 
         // Check for currency symbol suffix (e.g. "150¥", "100€", "50₹")
         if let TokenKind::CurrencySymbol(id) = self.peek() {
             let id = *id;
             self.advance();
-            return Ok(Expr::WithCurrency { expr: Box::new(expr), currency: id });
+            return Ok(self.per_unit(Expr::WithCurrency { expr: Box::new(expr), currency: id }));
         }
 
         Ok(expr)
+    }
+
+    /// Price per unit: "2 SEK/min", "0.12 SEK per GB" → currency / (1 unit)
+    fn per_unit(&mut self, currency_expr: Expr) -> Expr {
+        if matches!(self.peek(), TokenKind::Op(BinOp::Div))
+            && let Some(TokenKind::Unit(unit)) = self.tokens.get(self.pos + 1).map(|t| &t.kind)
+        {
+            let unit = *unit;
+            self.advance();
+            self.advance();
+            return Expr::BinaryOp {
+                op: BinOp::Div,
+                lhs: Box::new(currency_expr),
+                rhs: Box::new(Expr::WithUnit { expr: Box::new(Expr::Number(1.0)), unit }),
+            };
+        }
+        currency_expr
     }
 
     fn parse_percent_form(&mut self, pct_expr: Expr) -> Result<Expr, String> {
@@ -393,6 +410,15 @@ impl Parser {
                     TokenKind::Currency(id) => {
                         let id = *id;
                         self.advance();
+                        // Price per unit target: "in USD/TB"
+                        if matches!(self.peek(), TokenKind::Op(BinOp::Div))
+                            && let Some(TokenKind::Unit(unit)) = self.tokens.get(self.pos + 1).map(|t| &t.kind)
+                        {
+                            let unit = *unit;
+                            self.advance();
+                            self.advance();
+                            return Ok(Expr::Conversion { expr: Box::new(lhs), target: ConversionTarget::CurrencyRate(id, unit) });
+                        }
                         Ok(Expr::Conversion { expr: Box::new(lhs), target: ConversionTarget::Currency(id) })
                     }
                     TokenKind::Repr(r) => {

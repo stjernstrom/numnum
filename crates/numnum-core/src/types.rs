@@ -895,6 +895,8 @@ pub enum Value {
     WithUnit(f64, UnitId),
     WithCompoundUnit(f64, Vec<(UnitId, i8)>), // value + units with exponents (e.g. km/h, m²)
     WithCurrency(f64, CurrencyId),
+    /// Price per unit (e.g. 2 SEK/min): currency amount for one of the unit
+    WithCurrencyRate(f64, CurrencyId, UnitId),
     Percent(f64), // stored as fraction: 50% = 0.5
     /// Partial sum from a "---" line. Not part of later sums and not usable in calculations.
     Subtotal(Box<Value>),
@@ -906,7 +908,7 @@ impl Value {
         match self {
             Value::Number(n) | Value::NumberRepr(n, _) => Some(*n),
             Value::WithUnit(n, _) | Value::WithCompoundUnit(n, _) => Some(*n),
-            Value::WithCurrency(n, _) => Some(*n),
+            Value::WithCurrency(n, _) | Value::WithCurrencyRate(n, _, _) => Some(*n),
             Value::Percent(n) => Some(*n * 100.0),
             Value::Subtotal(_) | Value::None => None,
         }
@@ -919,7 +921,7 @@ impl fmt::Display for Value {
             Value::Number(n) => write!(f, "{}", crate::format::format_number(*n, 2, NumberFormat::US)),
             Value::NumberRepr(n, repr) => write!(f, "{}", crate::format::format_number_repr(*n, *repr)),
             Value::WithUnit(n, _) | Value::WithCompoundUnit(n, _) => write!(f, "{}", crate::format::format_number(*n, 2, NumberFormat::US)),
-            Value::WithCurrency(n, _) => write!(f, "{}", crate::format::format_number(*n, 2, NumberFormat::US)),
+            Value::WithCurrency(n, _) | Value::WithCurrencyRate(n, _, _) => write!(f, "{}", crate::format::format_number(*n, 2, NumberFormat::US)),
             Value::Percent(n) => write!(f, "{} %", crate::format::format_number(*n * 100.0, 2, NumberFormat::US)),
             Value::Subtotal(v) => write!(f, "{}", v),
             Value::None => Ok(()),
@@ -987,6 +989,7 @@ pub enum ConversionTarget {
     Unit(UnitId),
     Rate(UnitId, UnitId), // numerator / denominator, e.g. MB/s
     Currency(CurrencyId),
+    CurrencyRate(CurrencyId, UnitId), // price per unit, e.g. USD/TB
     Repr(ReprKind),
 }
 

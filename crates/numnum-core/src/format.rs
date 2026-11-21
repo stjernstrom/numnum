@@ -33,6 +33,10 @@ pub fn format_value_full_precision(value: &Value, unit_table: &UnitTable, curren
                 None => format_full(*n),
             }
         }
+        Value::WithCurrencyRate(n, c, u) => {
+            let amount = format_value_full_precision(&Value::WithCurrency(*n, *c), unit_table, currency_table, fmt);
+            per_unit(amount, *u, unit_table)
+        }
         Value::Percent(n) => format!("{} %", format_full(*n * 100.0)),
         Value::None => String::new(),
     }
@@ -62,8 +66,20 @@ pub fn format_value_with_precision(value: &Value, unit_table: &UnitTable, curren
                 None => format_number(*n, precision, fmt),
             }
         }
+        Value::WithCurrencyRate(n, c, u) => {
+            let amount = format_value_with_precision(&Value::WithCurrency(*n, *c), unit_table, currency_table, precision, fmt);
+            per_unit(amount, *u, unit_table)
+        }
         Value::Percent(n) => format!("{} %", format_number(*n * 100.0, precision, fmt)),
         Value::None => String::new(),
+    }
+}
+
+/// "2 kr" + min → "2 kr/min"
+fn per_unit(amount: String, unit: UnitId, unit_table: &UnitTable) -> String {
+    match unit_table.get(unit) {
+        Some(u) => format!("{amount}/{}", u.display),
+        None => amount,
     }
 }
 

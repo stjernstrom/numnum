@@ -433,8 +433,23 @@ impl EvalContext {
                                 let converted = self.convert_currency(n, from_currency, *to_currency)?;
                                 Ok(Value::WithCurrency(converted, *to_currency))
                             }
+                            Value::WithCurrencyRate(n, from_currency, unit) => {
+                                let converted = self.convert_currency(n, from_currency, *to_currency)?;
+                                Ok(Value::WithCurrencyRate(converted, *to_currency, unit))
+                            }
                             Value::Number(n) => Ok(Value::WithCurrency(n, *to_currency)),
                             _ => Err(EvalError::TypeMismatch("Cannot convert to currency".to_string())),
+                        }
+                    }
+                    ConversionTarget::CurrencyRate(to_currency, to_unit) => {
+                        match v {
+                            Value::WithCurrencyRate(n, from_currency, from_unit) => {
+                                let per_unit = self.rate_in_unit(n, from_unit, *to_unit)?;
+                                let converted = self.convert_currency(per_unit, from_currency, *to_currency)?;
+                                Ok(Value::WithCurrencyRate(converted, *to_currency, *to_unit))
+                            }
+                            Value::Number(n) => Ok(Value::WithCurrencyRate(n, *to_currency, *to_unit)),
+                            _ => Err(EvalError::TypeMismatch("Cannot convert to a price per unit".to_string())),
                         }
                     }
                     ConversionTarget::Repr(repr) => {
@@ -572,6 +587,9 @@ impl EvalContext {
 
     // Fix #2: convert RHS to LHS unit BEFORE doing arithmetic
     fn eval_binary_op(&self, op: BinOp, lhs: Value, rhs: Value) -> Result<Value, EvalError> {
+        if let Some(result) = self.eval_currency_rate_op(op, &lhs, &rhs) {
+            return result;
+        }
         // A unit and a currency cannot be combined (5 kg + 10 EUR, 120 min * 2 SEK)
         {
             let has_unit = |v: &Value| matches!(v, Value::WithUnit(..) | Value::WithCompoundUnit(..));
@@ -754,6 +772,61 @@ impl EvalContext {
         let rn = rhs.as_number().ok_or_else(|| EvalError::TypeMismatch("Right operand must be numeric".to_string()))?;
 
         self.eval_plain_op(op, ln, rn, &lhs, &rhs)
+    }
+
+    /// Price `n` per `from` unit expressed per `to` unit (2 SEK/min → 120 SEK/h).
+    fn rate_in_unit(&self, n: f64, from: UnitId, to: UnitId) -> Result<f64, EvalError> {
+        let one_to_in_from = self.unit_table.convert(1.0, to, from).ok_or(EvalError::IncompatibleUnits)?;
+        Ok(n * one_to_in_from)
+    }
+
+    /// Arithmetic that creates or uses a price per unit (2 SEK/min).
+    /// Returns None when neither operand is involved in one.
+    fn eval_currency_rate_op(&self, op: BinOp, lhs: &Value, rhs: &Value) -> Option<Result<Value, EvalError>> {
+        let number = |v: &Value| match v {
+            Value::Number(n) | Value::NumberRepr(n, _) => Some(*n),
+            Value::Percent(p) => Some(*p),
+            _ => None,
+        };
+        Some(match (op, lhs, rhs) {
+            // 240 SEK / 120 min → 2 SEK/min
+            (BinOp::Div, Value::WithCurrency(n, c), Value::WithUnit(m, u)) => {
+                if *m == 0.0 { return Some(Err(EvalError::DivisionByZero)); }
+                Ok(Value::WithCurrencyRate(n / m, *c, *u))
+            }
+            // 120 min * 2 SEK/min → 240 SEK
+            (BinOp::Mul, Value::WithUnit(m, u), Value::WithCurrencyRate(n, c, ru))
+            | (BinOp::Mul, Value::WithCurrencyRate(n, c, ru), Value::WithUnit(m, u)) => {
+                match self.unit_table.convert(*m, *u, *ru) {
+                    Some(m) => Ok(Value::WithCurrency(m * n, *c)),
+                    None => Err(EvalError::IncompatibleUnits),
+                }
+            }
+            // Scaling: 2 SEK/min * 3, 10% * 2 SEK/min, 2 SEK/min / 2
+            (BinOp::Mul, Value::WithCurrencyRate(n, c, u), other)
+            | (BinOp::Mul, other, Value::WithCurrencyRate(n, c, u)) if number(other).is_some() => {
+                Ok(Value::WithCurrencyRate(n * number(other).unwrap(), *c, *u))
+            }
+            (BinOp::Div, Value::WithCurrencyRate(n, c, u), other) if number(other).is_some() => {
+                let d = number(other).unwrap();
+                if d == 0.0 { return Some(Err(EvalError::DivisionByZero)); }
+                Ok(Value::WithCurrencyRate(n / d, *c, *u))
+            }
+            // 2 SEK/min + 60 SEK/h → in the left price's currency and unit
+            (BinOp::Add | BinOp::Sub, Value::WithCurrencyRate(ln, lc, lu), Value::WithCurrencyRate(rn, rc, ru)) => {
+                let rn = match self.rate_in_unit(*rn, *ru, *lu).and_then(|n| self.convert_currency(n, *rc, *lc)) {
+                    Ok(n) => n,
+                    Err(e) => return Some(Err(e)),
+                };
+                let n = if op == BinOp::Add { ln + rn } else { ln - rn };
+                Ok(Value::WithCurrencyRate(n, *lc, *lu))
+            }
+            // Any other combination with a price per unit is ambiguous
+            (_, Value::WithCurrencyRate(..), _) | (_, _, Value::WithCurrencyRate(..)) => {
+                Err(EvalError::IncompatibleUnits)
+            }
+            _ => return None,
+        })
     }
 
     /// Execute the arithmetic/bitwise operation on plain f64 values and propagate
@@ -2256,6 +2329,24 @@ mod unicode_tests {
             other => panic!("expected subtotal, got {other:?}"),
         }
         assert!(matches!(r[5], Value::WithCurrency(n, _) if (n - 25.0).abs() < 1e-9), "got {:?}", r[5]);
+    }
+
+    #[test]
+    fn test_price_per_unit() {
+        let mut ctx = EvalContext::new();
+        let sek = |ctx: &EvalContext| ctx.currency_table.lookup("SEK").unwrap();
+        let s = sek(&ctx);
+        ctx.eval_line("talktime = 120 min").unwrap();
+        assert!(matches!(ctx.eval_line("price = 2 SEK/min").unwrap(), Value::WithCurrencyRate(n, c, _) if n == 2.0 && c == s));
+        assert_eq!(ctx.eval_line("talktime * price").unwrap(), Value::WithCurrency(240.0, s));
+        assert_eq!(ctx.eval_line("2 h * 2 SEK per min").unwrap(), Value::WithCurrency(240.0, s));
+        assert_eq!(ctx.eval_line("1 TB * 0.5 SEK/GB").unwrap(), Value::WithCurrency(500.0, s));
+        assert!(matches!(ctx.eval_line("240 SEK / 120 min").unwrap(), Value::WithCurrencyRate(n, _, _) if n == 2.0));
+        assert!(matches!(ctx.eval_line("2 SEK/min in SEK/h").unwrap(), Value::WithCurrencyRate(n, _, _) if n == 120.0));
+        assert!(matches!(ctx.eval_line("2 SEK/min * 3").unwrap(), Value::WithCurrencyRate(n, _, _) if n == 6.0));
+        assert!(matches!(ctx.eval_line("2 SEK/min + 60 SEK/h").unwrap(), Value::WithCurrencyRate(n, _, _) if n == 3.0));
+        assert!(ctx.eval_line("5 kg * 2 SEK/min").is_err());
+        assert!(ctx.eval_line("2 SEK/min + 5 SEK").is_err());
     }
 
     #[test]

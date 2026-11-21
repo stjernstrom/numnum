@@ -1139,6 +1139,7 @@ fn zero_in(value: &Value) -> Value {
         Value::WithUnit(_, u) => Value::WithUnit(0.0, *u),
         Value::WithCompoundUnit(_, factors) => Value::WithCompoundUnit(0.0, factors.clone()),
         Value::WithCurrency(_, c) => Value::WithCurrency(0.0, *c),
+        Value::WithCurrencyRate(_, c, u) => Value::WithCurrencyRate(0.0, *c, *u),
         _ => Value::Number(0.0),
     }
 }
