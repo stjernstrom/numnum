@@ -57,8 +57,6 @@ pub struct EvalContext {
     pub number_format: NumberFormat,
     /// Rates set in the document ("1 EUR = 10.95 SEK"): (from, to) → multiplier.
     rate_overrides: HashMap<(CurrencyId, CurrencyId), f64>,
-    /// Index in `aggregation_window` where the next "---" subtotal starts.
-    subtotal_start: usize,
     /// True when the last evaluated line used `sum`/`total` (the UI draws a rule above it).
     pub last_line_used_sum: bool,
     /// Results of `sum` over a block, for a `sum` with no block above it (a grand total).
@@ -80,7 +78,6 @@ impl EvalContext {
             currency_table: CurrencyTable::new(),
             number_format: NumberFormat::US,
             rate_overrides: HashMap::new(),
-            subtotal_start: 0,
             last_line_used_sum: false,
             block_sums: Vec::new(),
         }
@@ -95,7 +92,6 @@ impl EvalContext {
             currency_table,
             number_format: NumberFormat::US,
             rate_overrides: HashMap::new(),
-            subtotal_start: 0,
             last_line_used_sum: false,
             block_sums: Vec::new(),
         }
@@ -209,15 +205,12 @@ impl EvalContext {
         let trimmed = if trimmed == "=" { "sum" } else { trimmed };
         if trimmed.is_empty() {
             self.aggregation_window.clear();
-            self.subtotal_start = 0;
             return Ok(Value::None);
         }
 
-        // "---" (three or more dashes): subtotal since the previous subtotal or blank line
+        // "---" (three or more dashes): running balance since the blank line above
         if trimmed.len() >= 3 && trimmed.bytes().all(|b| b == b'-') {
-            let start = self.subtotal_start.min(self.aggregation_window.len());
-            let sum = self.sum_values(&self.aggregation_window[start..])?;
-            self.subtotal_start = self.aggregation_window.len();
+            let sum = self.sum_values(&self.aggregation_window)?;
             return Ok(Value::Subtotal(Box::new(sum)));
         }
 
@@ -2335,10 +2328,10 @@ mod unicode_tests {
     }
 
     #[test]
-    fn test_subtotal_counts_from_previous_subtotal() {
+    fn test_subtotal_is_running_balance() {
         let r = eval_lines(&["10", "10", "---", "5", "5", "---", "sum"]);
         assert_eq!(r[2], Value::Subtotal(Box::new(Value::Number(20.0))));
-        assert_eq!(r[5], Value::Subtotal(Box::new(Value::Number(10.0))));
+        assert_eq!(r[5], Value::Subtotal(Box::new(Value::Number(30.0))));
         assert_eq!(r[6], Value::Number(30.0));
     }
 
