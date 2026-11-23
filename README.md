@@ -34,6 +34,20 @@ A block is the lines up to a blank line.
 sum                          = 22.04 kr
 ```
 
+A grand total over several blocks, in mixed currencies:
+
+```
+rent = 9500 SEK                              9,500 kr
+power = 650 SEK                              650 kr
+sum                                          = 10,150 kr
+
+fuel = 120 EUR                               € 120
+food = 3200 SEK                              3,200 kr
+sum                                          = 4,520 kr
+
+sum                                          = 14,670 kr
+```
+
 ### Prices per unit
 
 A currency divided by a unit is a price per unit. Multiply it by an amount and you get the cost.
@@ -52,6 +66,16 @@ Prices can be scaled, added together and converted to another currency or unit.
 
 ### Stricter units and currencies
 
+```
+5 kg + 10 EUR                                Error: Incompatible units
+120 min * 2 SEK                              Error: Incompatible units
+6191.81 hours as a % of 600000 min           61.92 %
+130 SEK as a % on 100 USD                    -87.62 %
+100 Mbit/s in MB/s                           12.5 MB/s
+1 GB / 100 Mbps                              80 s
+9 Mbit/s * 3 h in GB                         12.15 GB
+```
+
 - A unit and a currency cannot be combined (`5 kg + 10 EUR`, `120 min * 2 SEK`). This gives an error instead of silently dropping the currency.
 - `x as a % of/on/off y` converts x to y's unit or currency first, so `90 min as a % on 1 h` is 50 %.
 - Data units are case-sensitive, since case tells bytes from bits: `MB` is megabyte and `Mb` is megabit. Lowercase forms such as `mb` and `gb` give an error. Added `kbit`, `Mbit`, `Gbit` and `Tbit`.
@@ -61,6 +85,12 @@ Prices can be scaled, added together and converted to another currency or unit.
 
 A line like `1 EUR = 10.95 SEK` sets that pair's rate, in both directions, for the lines below it. Other pairs keep the fetched rates.
 
+```
+1 EUR = 10.95 SEK                            10.95 kr
+100 EUR in SEK                               1,095 kr
+10 EUR + 50 SEK                              € 14.57
+```
+
 ### Swedish number format
 
 - New number format option: Swedish (`1 234 567,89`).
@@ -68,11 +98,21 @@ A line like `1 EUR = 10.95 SEK` sets that pair's rate, in both directions, for t
 - A number that cannot be parsed in the active format, such as `3,594,272` with comma decimals, is an error instead of silently becoming 0.
 - Numbers between 0.000001 and 0.01 are shown as plain decimals (`0.007`), not `7e-3`.
 
+```
+3 594 272,5 * 2                              7 188 545
+1 234,5 + 0,5                                1 235
+0,14 SEK * 0,05                              0,007 kr
+```
+
 ### Files and multiple windows
 
 - Open and save documents as plain-text `.numnum` files (Ctrl+O, Ctrl+S, Ctrl+Shift+S). Files autosave like sessions.
 - Unsaved work is a scratchpad session. Save As moves it into the file.
-- `numnum summary.numnum` opens a file from the command line, creating it if needed.
+- `numnum summary.numnum` opens a file from the command line, creating it if needed:
+
+  ```sh
+  numnum ~/budget/2027.numnum
+  ```
 - Several windows can run at once. A document open in one window is locked and cannot be opened in another, so two windows never overwrite each other.
 - Opened files appear in the session menu next to the sessions.
 - The Linux install script registers `.numnum` as a file type that opens in NumNum.
