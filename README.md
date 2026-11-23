@@ -8,6 +8,103 @@ Blazingly fast. GPU-rendered UI powered by Zed's [GPUI](https://github.com/zed-i
 
 ![NumNum](assets/screenshot.png)
 
+## Changes in this fork
+
+This is a modified version of [NumNum](https://github.com/rudrabhoj/numnum) by Rudrabhoj Bhati, licensed under the same GPLv2 license. The git history records every change.
+
+### Sums, subtotals and blocks
+
+A block is the lines up to a blank line.
+
+- `---` (three or more dashes) shows the running balance of the block so far, as `subtotal: x`. Useful for a list that counts down from an amount.
+- `sum` (or a lone `=`) totals the block, shown as `= x` on a highlighted row.
+- A `sum` after a blank line, with no block of its own, adds up the block sums above it, for a grand total.
+- Sum and subtotal convert currencies and units, so `100 SEK` and `10 EUR` add up correctly.
+- Plain numbers inherit the block's unit or currency. In a block that starts with `147.77 SEK`, a later `- 4.43` counts as kronor, and the result column shows it.
+- Click a subtotal or sum to copy its value without the label.
+
+```
+147.77 SEK
+- 29.55 SEK
+---                          subtotal: 118.22 kr
+- 4.43
+- 25.65
+---                          subtotal: 88.14 kr
+- 66.10
+sum                          = 22.04 kr
+```
+
+### Prices per unit
+
+A currency divided by a unit is a price per unit. Multiply it by an amount and you get the cost.
+
+```
+talk = 120 min
+price = 2 SEK/min                            2 kr/min
+talk * price                                 240 kr
+1 TB * 0.12 SEK per GB                       120 kr
+2 SEK/min in SEK/h                           120 kr/h
+0.12 SEK/GB in USD/TB                        $11.43/TB
+5% of price                                  0.1 kr/min
+```
+
+Prices can be scaled, added together and converted to another currency or unit.
+
+### Stricter units and currencies
+
+- A unit and a currency cannot be combined (`5 kg + 10 EUR`, `120 min * 2 SEK`). This gives an error instead of silently dropping the currency.
+- `x as a % of/on/off y` converts x to y's unit or currency first, so `90 min as a % on 1 h` is 50 %.
+- Data units are case-sensitive, since case tells bytes from bits: `MB` is megabyte and `Mb` is megabit. Lowercase forms such as `mb` and `gb` give an error. Added `kbit`, `Mbit`, `Gbit` and `Tbit`.
+- Data rates convert (`100 Mbit/s in MB/s`), and matching units cancel (`9 Mbit/s * 3 h in GB`, `1 GB / 100 Mbps` gives seconds).
+
+### Currency rates in the document
+
+A line like `1 EUR = 10.95 SEK` sets that pair's rate, in both directions, for the lines below it. Other pairs keep the fetched rates.
+
+### Swedish number format
+
+- New number format option: Swedish (`1 234 567,89`).
+- Space-grouped numbers such as `3 594 272,5` are read as one number, so results can be pasted back in.
+- A number that cannot be parsed in the active format, such as `3,594,272` with comma decimals, is an error instead of silently becoming 0.
+- Numbers between 0.000001 and 0.01 are shown as plain decimals (`0.007`), not `7e-3`.
+
+### Files and multiple windows
+
+- Open and save documents as plain-text `.numnum` files (Ctrl+O, Ctrl+S, Ctrl+Shift+S). Files autosave like sessions.
+- Unsaved work is a scratchpad session. Save As moves it into the file.
+- `numnum summary.numnum` opens a file from the command line, creating it if needed.
+- Several windows can run at once. A document open in one window is locked and cannot be opened in another, so two windows never overwrite each other.
+- Opened files appear in the session menu next to the sessions.
+- The Linux install script registers `.numnum` as a file type that opens in NumNum.
+
+### Status bar
+
+- Shows the total of the document, converted to the unit of the last result line. Sum lines are left out, so values are not counted twice.
+- Shows the total of the selected lines next to it.
+- A button copies the document, or the selected lines, as plain text with the results in a right-aligned column, for pasting into chat or email.
+
+### Editor and window
+
+- Title bar shows the document name, or "Scratchpad" for unsaved work.
+- New title bar mode, Info: the NumNum title bar without window buttons.
+- The status bar menu button is hidden when the title bar has one.
+- Autocomplete lists data units with full names (`MB (Megabyte)`, `Mb (Megabit)`) and needs only one character after a number or `in`.
+- The current-line highlight is hidden while text is selected.
+
+Keyboard shortcuts added:
+
+| Keys | Action |
+|---|---|
+| Ctrl+Left / Right | Previous / next word |
+| Ctrl+Home / End | Start / end of document |
+| Page Up / Down | Move one page |
+| Shift + any of the above, Shift+Home / End, Shift+Up / Down | Extend the selection |
+| Ctrl+N | New scratchpad |
+| Ctrl+O / Ctrl+S / Ctrl+Shift+S | Open / Save / Save As |
+| Ctrl+Plus / Minus / 0 | Larger / smaller / reset font size |
+| Ctrl+Shift+C / V | Copy / paste |
+| Super+W | Close window |
+
 ## How it works
 
 ```
