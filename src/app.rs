@@ -147,11 +147,27 @@ impl NumNumApp {
             // Per line: the result if it has a unit or currency, sum lines included.
             // The totals are shown in the last one of these.
             let mut line_units: Vec<Option<Value>> = Vec::new();
+            // Subtotals of plain numbers in the current block: (result index, value).
+            // They get the block's unit once it is known.
+            let mut block_subtotals: Vec<(usize, Value)> = Vec::new();
+            let retag_subtotals = |ctx: &EvalContext, results: &mut Vec<LineResult>, subtotals: &mut Vec<(usize, Value)>, unit: Option<&Value>| {
+                let mut values: Vec<Option<Value>> = subtotals.iter().map(|(_, v)| Some(v.clone())).collect();
+                adopt_unit(&mut values, unit);
+                for ((i, _), value) in subtotals.drain(..).zip(values.into_iter().flatten()) {
+                    if has_unit(&value) {
+                        results[i] = LineResult::Subtotal(
+                            format_value_with_precision(&value, &ctx.unit_table, &ctx.currency_table, precision, this.number_format),
+                            format_value_full_precision(&value, &ctx.unit_table, &ctx.currency_table, this.number_format),
+                        );
+                    }
+                }
+            };
 
             for line_text in content.split('\n') {
                 if line_text.trim().is_empty() {
                     let unit = block_unit.take().or(block_sum_unit.take());
                     adopt_unit(&mut line_values[block_start..], unit.as_ref());
+                    retag_subtotals(&eval_ctx, &mut results, &mut block_subtotals, unit.as_ref());
                     block_start = line_values.len();
                 }
                 let value_count = line_values.len();
@@ -162,9 +178,13 @@ impl NumNumApp {
                         diagnostics.push(None);
                     }
                     Ok(val @ Value::Subtotal(_)) => {
-                        if let Value::Subtotal(inner) = &val && has_unit(inner) {
-                            block_sum_unit = Some((**inner).clone());
-                            line_unit = Some((**inner).clone());
+                        if let Value::Subtotal(inner) = &val {
+                            if has_unit(inner) {
+                                block_sum_unit = Some((**inner).clone());
+                                line_unit = Some((**inner).clone());
+                            } else {
+                                block_subtotals.push((results.len(), (**inner).clone()));
+                            }
                         }
                         let formatted = format_value_with_precision(
                             &val, &eval_ctx.unit_table, &eval_ctx.currency_table, precision, this.number_format,
@@ -210,7 +230,9 @@ impl NumNumApp {
                 }
                 line_units.push(line_unit);
             }
-            adopt_unit(&mut line_values[block_start..], block_unit.or(block_sum_unit).as_ref());
+            let unit = block_unit.or(block_sum_unit);
+            adopt_unit(&mut line_values[block_start..], unit.as_ref());
+            retag_subtotals(&eval_ctx, &mut results, &mut block_subtotals, unit.as_ref());
             // Show the inherited unit on plain-number lines too, so the column matches the totals
             for (result, value) in results.iter_mut().zip(&line_values) {
                 if let (LineResult::Value(..), Some(value)) = (&*result, value)
