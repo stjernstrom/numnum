@@ -2027,7 +2027,10 @@ impl Render for Editor {
                                 div()
                                     .w_full()
                                     .pl(gutter_w + gutter_pad)
-                                    .py(px(2.))
+                                    // Same height as the spacer in the results column, so results stay aligned
+                                    .h(self.line_height * 0.8)
+                                    .flex()
+                                    .items_center()
                                     .text_size(self.font_size * 0.75)
                                     .text_color(error_color)
                                     .child(diag.clone())
