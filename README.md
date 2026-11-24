@@ -34,6 +34,8 @@ A block is the lines up to a blank line.
 sum                          = 22.04 kr
 ```
 
+![Running balance with --- subtotals and the selection total in the status bar](assets/fork-running-balance.png)
+
 A grand total over several blocks, in mixed currencies:
 
 ```
@@ -47,6 +49,8 @@ sum                                          = 4,520 kr
 
 sum                                          = 14,670 kr
 ```
+
+![Grand total over blocks in mixed currencies](assets/fork-grand-total.png)
 
 ### Prices per unit
 
@@ -63,6 +67,8 @@ talk * price                                 240 kr
 ```
 
 Prices can be scaled, added together and converted to another currency or unit.
+
+![Prices per minute and per GB multiplied by usage](assets/fork-price-per-unit.png)
 
 ### Stricter units and currencies
 
