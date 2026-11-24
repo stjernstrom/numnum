@@ -82,6 +82,8 @@ Prices can be scaled, added together and converted to another currency or unit.
 9 Mbit/s * 3 h in GB                         12.15 GB
 ```
 
+![A rate set in the document, units and currencies kept apart, and data rates](assets/fork-rates-and-units.png)
+
 - A unit and a currency cannot be combined (`5 kg + 10 EUR`, `120 min * 2 SEK`). This gives an error instead of silently dropping the currency.
 - `x as a % of/on/off y` converts x to y's unit or currency first, so `90 min as a % on 1 h` is 50 %.
 - Data units are case-sensitive, since case tells bytes from bits: `MB` is megabyte and `Mb` is megabit. Lowercase forms such as `mb` and `gb` give an error. Added `kbit`, `Mbit`, `Gbit` and `Tbit`.
@@ -109,6 +111,8 @@ A line like `1 EUR = 10.95 SEK` sets that pair's rate, in both directions, for t
 1 234,5 + 0,5                                1 235
 0,14 SEK * 0,05                              0,007 kr
 ```
+
+![Swedish number format](assets/fork-swedish-format.png)
 
 ### Files and multiple windows
 
